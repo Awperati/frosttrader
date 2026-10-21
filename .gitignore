@@ -1,0 +1,10 @@
+node_modules
+client/dist
+data
+.env
+*.log
+*.jks
+*.keystore
+keystore.properties
+*.apk
+release
