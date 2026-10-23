@@ -118,6 +118,20 @@ export class Auth {
   }
 
   async login(ip, body) {
+    await this.verify(ip, body);
+    const token = crypto.randomBytes(32).toString('base64url');
+    const at = new Date(this.now()).toISOString();
+    const dev = { id: crypto.randomBytes(6).toString('hex'), name: String(body.device || 'Device').slice(0, 60), hash: hashToken(token), created: at, lastSeen: at, ...(this.totp.enabled ? { mfa: true } : {}) };
+    this.devices.push(dev);
+    this.save();
+    return { token, deviceId: dev.id };
+  }
+
+  /**
+   * Check the password (and the code, when two-factor is on) with the same lockout and slow-down as a
+   * sign-in, without signing a device in: the owner's step-up for live trading. Throws HttpError.
+   */
+  async verify(ip, body) {
     this.refuseIfLocked(ip);
     const delay = this.slowdown(this.now());
     if (delay) {
@@ -138,12 +152,6 @@ export class Auth {
       if (!this.totp.check(code)) this.fail(ip, 'Wrong code', { code_required: true });
     }
     this.failures.delete(ip);
-    const token = crypto.randomBytes(32).toString('base64url');
-    const at = new Date(this.now()).toISOString();
-    const dev = { id: crypto.randomBytes(6).toString('hex'), name: String(body.device || 'Device').slice(0, 60), hash: hashToken(token), created: at, lastSeen: at, ...(this.totp.enabled ? { mfa: true } : {}) };
-    this.devices.push(dev);
-    this.save();
-    return { token, deviceId: dev.id };
   }
 
   refuseIfLocked(ip) {
