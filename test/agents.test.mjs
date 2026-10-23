@@ -21,6 +21,7 @@ import { AlpacaData } from '../server/engine/data/alpaca-data.mjs';
 import { AlpacaKeys } from '../server/alpaca-keys.mjs';
 import { createAgentsApi } from '../server/agents-api.mjs';
 import { rng } from '../server/engine/stats.mjs';
+import { FxRate, STALE_DAYS } from '../server/engine/data/fx.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ft-agents-'));
@@ -219,14 +220,16 @@ function fakeSpawn(script) {
 }
 
 function makeHost({ script = () => [], universe = ['AAPL', 'MSFT', 'NVDA'], prices = { AAPL: 200, MSFT: 400, NVDA: 120 }, settings } = {}) {
+  // fx rate 1 by default, so dollar figures read the same in AUD and USD; the AUD test sets 0.7
   const dir = tmp();
   if (settings) fs.writeFileSync(path.join(dir, 'agents-settings.json'), JSON.stringify({ ...DEFAULT_SETTINGS, ...settings }));
   const clock = { t: T0 };
   const market = { prices: { ...prices }, last: {} };
   const data = { bars: async (symbols) => Object.fromEntries(symbols.filter((s) => market.prices[s]).map((s) => [s, bars(clock.t, market.prices[s], 40, market.last[s] || {})])) };
   const { spawn, procs } = fakeSpawn(script);
-  const host = new AgentHost({ dataDir: dir, getUniverse: () => universe, getData: () => data, now: () => clock.t, spawn, log: { warn() {} } });
-  return { host, dir, clock, market, procs };
+  const fx = { rate: 1, date: '2026-10-21', source: 'test' };
+  const host = new AgentHost({ dataDir: dir, getUniverse: () => universe, getData: () => data, getFx: () => (fx.rate ? fx : null), now: () => clock.t, spawn, log: { warn() {} } });
+  return { host, dir, clock, market, procs, fx };
 }
 const buy = (symbol, score = 0.8, signal = 'stop_run') => ({ symbol, action: 'buy', signal, score });
 
@@ -386,7 +389,7 @@ test('host: paper money per agent changes from the next trading day; agents at o
   assert.deepEqual(st.agents.map((a) => a.allocation), [250, 250, 250, 250]);
   assert.equal(st.pool, 1000);
   assert.equal(host.sandbox('agent-a').guard.limits.maxDailyLoss, 7.5);
-  const noKeys = new AgentHost({ dataDir: tmp(), getUniverse: () => ['AAPL'], getData: () => null, now: () => T0, spawn: fakeSpawn(() => []).spawn });
+  const noKeys = new AgentHost({ dataDir: tmp(), getUniverse: () => ['AAPL'], getData: () => null, getFx: () => ({ rate: 1, date: '2026-10-21' }), now: () => T0, spawn: fakeSpawn(() => []).spawn });
   assert.match((await noKeys.tick()).lastError, /No Alpaca paper keys/);
   noKeys.stop();
   host.stop();
@@ -515,4 +518,52 @@ test('nothing in the agents code can send a real order or open live trading', ()
     assert.ok(!/paper-api\.alpaca|\/v2\/orders|live-enablement/.test(src), `${f} reaches an order endpoint or the live enablement`);
   }
   assert.ok(AGENT_IDS.length === 4);
+});
+
+// ── AUD ──
+
+test('AUD/USD rate: fetched, dated, cached, kept on failure, refused when too old', async () => {
+  const dir = tmp();
+  let answer = { ok: true, status: 200, json: async () => ({ amount: 1, base: 'AUD', date: '2026-10-22', rates: { USD: 0.70119 } }) };
+  let calls = 0;
+  const clock = { t: Date.parse('2026-10-23T00:00:00Z') };
+  const fx = new FxRate({ dataDir: dir, fetchImpl: async (url) => (calls++, assert.match(url, /from=AUD&to=USD/), answer), now: () => clock.t, log: { warn() {} } });
+  assert.equal(fx.current(), null);
+  const r = await fx.refresh();
+  assert.equal(r.rate, 0.70119);
+  assert.equal(r.date, '2026-10-22');
+  assert.match(r.source, /European Central Bank/);
+  await fx.refresh();
+  assert.equal(calls, 1, 'at most every 6 hours');
+  clock.t += 7 * 3600_000;
+  answer = { ok: false, status: 503, json: async () => ({}) };
+  assert.equal((await fx.refresh()).rate, 0.70119, 'the last good rate stays');
+  answer = { ok: true, status: 200, json: async () => ({ date: '2026-10-23', rates: { USD: 70 } }) };
+  clock.t += 7 * 3600_000;
+  assert.equal((await fx.refresh()).rate, 0.70119, 'a silly rate is refused');
+  assert.equal(new FxRate({ dataDir: dir, now: () => clock.t }).current().rate, 0.70119, 'cached on disk');
+  clock.t += (STALE_DAYS + 1) * 86_400_000;
+  assert.equal(fx.current(), null, 'too old: none');
+});
+
+test("paper money is in AUD: the books get AUD × the day's rate; the AUD amount never grows", async () => {
+  const { host, clock, fx } = makeHost({ script: () => [] });
+  fx.rate = 0.7;
+  let st = await host.tick();
+  assert.equal(st.settings.paperPerAgent, 10, 'AUD');
+  assert.equal(st.usdPerAgent, 7);
+  assert.deepEqual(st.agents.map((a) => a.allocation), [7, 7, 7, 7]);
+  assert.equal(host.sandbox('agent-a').guard.limits.maxDailyLoss, 7 * MEDIUM.dailyLossPct);
+  // the next day the AUD buys a little more: the US-dollar figure follows, the AUD stays $10
+  fx.rate = 0.71;
+  clock.t = T0 + 86_400_000;
+  st = await host.tick();
+  assert.deepEqual(st.agents.map((a) => a.allocation), [7.1, 7.1, 7.1, 7.1]);
+  assert.ok(host.audit.tail(30).some((e) => e.type === 'allocation' && e.aud === 10 && e.rate === 0.71));
+  // no rate: nothing trades
+  fx.rate = 0;
+  clock.t += 5 * MIN;
+  st = await host.tick();
+  assert.match(st.lastError, /No AUD → US dollar rate/);
+  host.stop();
 });

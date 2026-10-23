@@ -75,10 +75,11 @@ const blankAgent = () => ({ peak: null, sitOut: 0, scale: 1, cleanDays: 0, ddHal
 export class AgentHost {
   /**
    * getUniverse(): the watchlist symbols. getData(): an AlpacaData client, or null without keys.
+   * getFx(): today's AUD → USD rate { rate, date, source } (data/fx.mjs), or null; refreshFx() updates it.
    * spawn(id): a child process (tests can pass a fake).
    */
-  constructor({ dataDir, getUniverse = () => [], getData = () => null, now = Date.now, spawn = spawnAgent, log = console }) {
-    Object.assign(this, { dataDir, getUniverse, getData, now, spawn, log });
+  constructor({ dataDir, getUniverse = () => [], getData = () => null, getFx = () => null, refreshFx = async () => {}, now = Date.now, spawn = spawnAgent, log = console }) {
+    Object.assign(this, { dataDir, getUniverse, getData, getFx, refreshFx, now, spawn, log });
     this.settingsFile = path.join(dataDir, 'agents-settings.json');
     this.stateFile = path.join(dataDir, 'agents-host.json');
     this.killFile = path.join(dataDir, 'KILL');
@@ -96,8 +97,19 @@ export class AgentHost {
 
   // ── sandboxes ──────────────────────────────────────────────
 
+  /**
+   * The paper money per agent in US dollars: the owner's AUD amount × today's rate, to the cent. The
+   * AUD amount is the cap; the rate only moves the US-dollar figure. null without a rate.
+   */
+  usdPerAgent() {
+    const fx = this.getFx();
+    return fx?.rate > 0 ? Math.floor(this.settings.paperPerAgent * fx.rate * 100) / 100 : null;
+  }
+
   openSandboxes() {
-    const pool = this.settings.paperPerAgent * MAX_AGENTS;
+    // without a rate yet, the books open at the AUD figure and are set right at the first trading day
+    const first = this.usdPerAgent() ?? this.settings.paperPerAgent;
+    const pool = first * MAX_AGENTS;
     const m = new SandboxManager({ rootDir: this.dataDir, pool, fractional: true, slippageBps: 5 });
     if (fs.existsSync(m.allocationsFile)) m.load();
     for (const id of AGENT_IDS) {
@@ -106,8 +118,8 @@ export class AgentHost {
           // a folder without an allocation entry (a crash between the two writes): set it aside
           fs.renameSync(path.join(this.dataDir, 'agents', id), path.join(this.dataDir, 'agents', `${id}.aside-${Date.now()}`));
         }
-        if (m.unallocated() < this.settings.paperPerAgent) m.setPool(m.allocated() + this.settings.paperPerAgent);
-        m.create(id, this.settings.paperPerAgent);
+        if (m.unallocated() < first) m.setPool(m.allocated() + first);
+        m.create(id, first);
       }
     }
     return m;
@@ -312,7 +324,8 @@ export class AgentHost {
   startDay(day) {
     this.state.day = day;
     this.state.poolPause = null;
-    const per = this.settings.paperPerAgent;
+    const per = this.usdPerAgent();
+    if (per == null) return; // no rate: the tick has already said so and trades nothing
     if (this.manager.pool !== per * MAX_AGENTS && this.manager.allocated() <= per * MAX_AGENTS) this.manager.setPool(per * MAX_AGENTS);
     for (const id of AGENT_IDS) {
       const a = this.state.agents[id];
@@ -322,7 +335,7 @@ export class AgentHost {
         if (per > sb.allocation && this.manager.unallocated() < per - sb.allocation) this.manager.setPool(this.manager.allocated() + per - sb.allocation);
         if (sb.reallocate(per)) {
           this.manager.saveAllocations();
-          this.audit.write({ type: 'allocation', agent: id, allocation: per });
+          this.audit.write({ type: 'allocation', agent: id, allocation: per, aud: this.settings.paperPerAgent, rate: this.getFx()?.rate, rateDate: this.getFx()?.date });
         }
       }
       if (a.dayHalt && a.dayHalt.day !== day) a.dayHalt = null;
@@ -398,6 +411,11 @@ export class AgentHost {
     if (!marketOpen(now)) {
       if (this.state.day && this.state.closedDay !== this.state.day && (clock.day !== this.state.day || clock.minute >= CLOSE_MIN)) this.endDay(this.state.day);
       for (const id of [...this.children.keys()]) this.stopChild(id);
+      return;
+    }
+    await this.refreshFx();
+    if (!this.getFx()) {
+      this.state.lastError = 'No AUD → US dollar rate yet (or it is over 5 days old): the agents wait.';
       return;
     }
     if (this.state.day !== clock.day) this.startDay(clock.day);
@@ -564,6 +582,9 @@ export class AgentHost {
       paperOnly: true,
       live: 'Live trading is closed: the owner has not set live limits',
       settings: this.settings,
+      currency: 'Paper money is set in AUD; the books and prices are in US dollars.',
+      fx: this.getFx(),
+      usdPerAgent: this.usdPerAgent(),
       killed: this.state.killed,
       killReason: this.state.killReason,
       integrity: this.state.integrity,

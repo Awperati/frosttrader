@@ -21,6 +21,7 @@ import { TickerMirror } from './engine/ticker-mirror.mjs';
 import { AgentHost } from './engine/agents/host.mjs';
 import { AlpacaKeys } from './alpaca-keys.mjs';
 import { createAgentsApi } from './agents-api.mjs';
+import { FxRate } from './engine/data/fx.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(root, 'data'));
@@ -39,7 +40,9 @@ finvizSource.start();
 const finviz = createFinvizApi({ source: finvizSource, mirror });
 // The paper agents (AGENTS=0: off). They trade only the Finviz watchlist, on paper.
 const alpacaKeys = new AlpacaKeys({ dataDir: DATA_DIR });
-const host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client() });
+// the owner sets the agents' money in AUD; the books are in US dollars at the day's ECB rate
+const fx = new FxRate({ dataDir: DATA_DIR });
+const host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getFx: () => fx.current(), refreshFx: () => fx.refresh() });
 if (process.env.AGENTS !== '0') host.start();
 const agents = createAgentsApi({ host, keys: alpacaKeys });
 const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => ({ ...finvizSource.status(), holders: host.holders() }) });

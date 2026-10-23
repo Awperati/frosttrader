@@ -120,6 +120,9 @@ export type AgentsStatus = {
   paperOnly: true;
   live: string;
   settings: AgentSettings;
+  currency: string;
+  fx: { rate: number; date: string; source: string; ageDays: number } | null;
+  usdPerAgent: number | null;
   killed: boolean;
   killReason: string;
   integrity: { reason: string; at: number } | null;

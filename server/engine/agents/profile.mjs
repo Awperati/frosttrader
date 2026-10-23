@@ -1,13 +1,16 @@
 // The paper agents' settings: how many run, the paper money each gets, the risk preset and each
 // agent's own parameters. Paper only: none of this is a live limit and nothing here enables live.
 //
+// The paper money is in Australian dollars (the owner: "$10AUD"); the books are in US dollars, at
+// each trading day's rate (server/engine/data/fx.mjs).
+//
 // "Medium" is a starting preset the owner chose by name; its numbers are his to change in Settings.
 // Every dollar figure is a share of the agent's allocation, so the halts scale when he raises the
 // paper money from $10 to $250.
 
 export const MAX_AGENTS = 4;
 export const AGENT_IDS = ['agent-a', 'agent-b', 'agent-c', 'agent-d'];
-export const PAPER_MONEY = { min: 5, max: 250, start: 10 }; // dollars per agent
+export const PAPER_MONEY = { min: 5, max: 250, start: 10 }; // AUSTRALIAN dollars per agent (data/fx.mjs converts)
 
 /** The risk preset, as shares of the agent's allocation (or counts). */
 export const MEDIUM = Object.freeze({

@@ -24,11 +24,12 @@ const PARAM_FIELDS: { key: keyof AgentParams; label: string; step: number }[] = 
 
 export function AgentsCard() {
   const [s, setS] = useState<AgentSettings | null>(null);
+  const [fx, setFx] = useState<{ rate: number; date: string; source: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   useEffect(() => {
-    api.agents().then((st) => setS(st.settings), (e) => setErr((e as Error).message));
+    api.agents().then((st) => (setS(st.settings), setFx(st.fx)), (e) => setErr((e as Error).message));
   }, []);
   if (!s) return <div className="panel">{err ? <p className="error">{err}</p> : <p className="muted">Loading…</p>}</div>;
 
@@ -66,8 +67,9 @@ export function AgentsCard() {
           </select>
         </label>
         <label className="field">
-          <span>Paper money per agent ($)</span>
+          <span>Paper money per agent (AUD)</span>
           <input type="number" min={5} max={250} step={5} value={s.paperPerAgent} onChange={(e) => setS({ ...s, paperPerAgent: Number(e.target.value) })} />
+          <span className="small muted">{fx ? `≈ US$${(Math.floor(s.paperPerAgent * fx.rate * 100) / 100).toFixed(2)} at ${fx.rate} (${fx.date}, ${fx.source}). Prices are in US dollars.` : 'No AUD → USD rate yet: the agents wait for one.'}</span>
         </label>
       </div>
       <h3>Risk preset: {s.preset.name} (your choice, not advice)</h3>
@@ -83,7 +85,7 @@ export function AgentsCard() {
             />
             <span className="small muted">
               {f.help}
-              {f.pct && (f.key === 'dailyLossPct' || f.key === 'drawdownPct') ? ` ($${((s.preset[f.key] as number) * s.paperPerAgent).toFixed(2)} at $${s.paperPerAgent})` : ''}
+              {f.pct && (f.key === 'dailyLossPct' || f.key === 'drawdownPct') ? ` (A$${((s.preset[f.key] as number) * s.paperPerAgent).toFixed(2)} at A$${s.paperPerAgent})` : ''}
             </span>
           </label>
         ))}

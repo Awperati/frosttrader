@@ -6,7 +6,7 @@ import { num, signed, tone } from '../format';
 // the latest audit events. Paper money only; live trading is closed.
 
 const time = (t: number | string | null | undefined) => (t == null ? '–' : new Date(t).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }));
-const money = (x: number | null | undefined) => (x == null ? '–' : `$${num(x)}`);
+const money = (x: number | null | undefined) => (x == null ? '–' : `US$${num(x)}`);
 const qty = (q: number) => num(q, q % 1 ? 4 : 0);
 
 export function Portfolio() {
@@ -45,7 +45,7 @@ export function Portfolio() {
   return (
     <div className="portfolio">
       <div className={`banner ${stopped ? 'banner-bad' : ''}`}>
-        <b>Paper money only.</b> {st.live}. {st.agents.filter((a) => a.running).length} of 4 agents set to run, ${num(st.settings.paperPerAgent)} each.
+        <b>Paper money only.</b> {st.live}. {st.agents.filter((a) => a.running).length} of 4 agents set to run, A${num(st.settings.paperPerAgent)} each{st.usdPerAgent != null && st.fx ? ` (≈ US$${num(st.usdPerAgent)} at ${st.fx.rate} on ${st.fx.date}, ${st.fx.source})` : ' (no AUD → USD rate yet)'}.
         <span className="sep">·</span>
         {st.marketOpen ? 'US market open' : 'US market closed'}
         <span className="sep">·</span>
