@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { SimBroker } from '../broker/sim.mjs';
-import { RiskGuard, DEFAULT_LIMITS } from '../risk.mjs';
+import { RiskGuard, DEFAULT_LIMITS, cleanLimits } from '../risk.mjs';
 
 export const AGENT_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const FILLS_KEPT = 500;
@@ -33,13 +33,13 @@ function writeAtomic(file, data) {
 }
 
 export class Sandbox {
-  constructor({ id, dir, allocation, limits = DEFAULT_LIMITS, slippageBps = 5, commission = 0 }) {
+  constructor({ id, dir, allocation, limits = DEFAULT_LIMITS, slippageBps = 5, commission = 0, fractional = false }) {
     if (!(allocation > 0)) throw new Error('Allocation must be above zero');
     this.id = id;
     this.dir = dir;
     this.allocation = allocation;
-    this.broker = new SimBroker({ cash: allocation, slippageBps, commission });
-    this.guard = new RiskGuard(limits);
+    this.broker = new SimBroker({ cash: allocation, slippageBps, commission, fractional });
+    this.guard = new RiskGuard(limits, { fractional });
   }
 
   get ledgerFile() {
@@ -58,6 +58,24 @@ export class Sandbox {
 
   startDay(key) {
     this.guard.startDay(key, this.broker.equity());
+  }
+
+  /** New limits from the host (the risk preset, scaled after a drawdown halt). */
+  setLimits(limits) {
+    this.guard.limits = cleanLimits(limits);
+  }
+
+  /**
+   * A new allocation (the owner changed the paper money per agent). Only while flat: cash moves by the
+   * difference, so the agent's gains and losses so far stay in its book. Returns false if not flat.
+   */
+  reallocate(allocation) {
+    if (!(allocation > 0)) throw new Error('Allocation must be above zero');
+    if (Object.keys(this.broker.positions).length) return false;
+    this.broker.cash = Math.max(0, this.broker.cash + (allocation - this.allocation));
+    this.allocation = allocation;
+    this.save();
+    return true;
   }
 
   /**
@@ -106,7 +124,8 @@ export class Sandbox {
 
 export class SandboxManager {
   /** rootDir: DATA_DIR. pool: total paper capital the agents share out. */
-  constructor({ rootDir, pool, limits = DEFAULT_LIMITS, slippageBps = 5 }) {
+  constructor({ rootDir, pool, limits = DEFAULT_LIMITS, slippageBps = 5, fractional = false }) {
+    this.fractional = fractional;
     if (!(pool > 0)) throw new Error('Capital pool must be above zero');
     this.rootDir = rootDir;
     this.pool = pool;
@@ -120,6 +139,13 @@ export class SandboxManager {
 
   get allocationsFile() {
     return path.join(this.rootDir, 'allocations.json');
+  }
+
+  /** A new pool (the paper money per agent changed); allocations follow through reallocate(). */
+  setPool(pool) {
+    if (!(pool > 0)) throw new Error('Capital pool must be above zero');
+    this.pool = pool;
+    this.saveAllocations();
   }
 
   allocated() {
@@ -139,7 +165,7 @@ export class SandboxManager {
     if (!(allocation > 0)) throw new Error('Allocation must be above zero');
     if (allocation > this.unallocated() + 1e-9) throw new Error(`Over the capital pool ($${allocation} asked, $${this.unallocated()} free)`);
     fs.mkdirSync(dir, { recursive: true });
-    const sb = new Sandbox({ id: agentId, dir, allocation, limits: this.limits, slippageBps: this.slippageBps, ...opts });
+    const sb = new Sandbox({ id: agentId, dir, allocation, limits: this.limits, slippageBps: this.slippageBps, fractional: this.fractional, ...opts });
     sb.save();
     this.sandboxes.set(agentId, sb);
     this.saveAllocations();
@@ -161,7 +187,7 @@ export class SandboxManager {
     this.brokenAllocations.clear();
     for (const [id, allocation] of Object.entries(saved.agents || {})) {
       try {
-        const sb = new Sandbox({ id, dir: agentDir(this.rootDir, id), allocation, limits: this.limits, slippageBps: this.slippageBps });
+        const sb = new Sandbox({ id, dir: agentDir(this.rootDir, id), allocation, limits: this.limits, slippageBps: this.slippageBps, fractional: this.fractional });
         this.sandboxes.set(id, sb.load());
       } catch (e) {
         this.broken.set(id, e.message);

@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react';
 import { ZOOM, clampZoom, loadZoom, saveZoom, stepZoom, zoomKey } from './zoom';
 import { StockNumbers } from './pages/StockNumbers';
 import { Settings } from './pages/Settings';
+import { Portfolio } from './pages/Portfolio';
+import { api } from './api';
 
-// The app's screens (docs/APP-DESIGN.md). Stage 0 builds only Stock numbers; the others are
-// listed so the layout is settled, and say which stage brings them.
+// The app's screens (docs/APP-DESIGN.md). Built: Stock numbers, Paper portfolio and Settings; the
+// others are listed so the layout is settled, and say which stage brings them.
 const SCREENS = [
   { id: 'numbers', label: 'Stock numbers', stage: 0 },
   { id: 'proposals', label: 'Proposals and log', stage: 0, later: 'Arrives with the shadow gate (stage 0, second part): what the local model proposed and what the gate decided.' },
-  { id: 'portfolio', label: 'Paper portfolio', stage: 1, later: 'Arrives in stage 1 (paper trading).' },
-  { id: 'risk', label: 'Risk and limits', stage: 1, later: 'Arrives in stage 1. Limits can be tightened at once; loosening waits for the next trading day.' },
+  { id: 'portfolio', label: 'Paper portfolio', stage: 1 },
+  { id: 'risk', label: 'Risk and limits', stage: 1, later: 'The paper agents’ risk preset and halts are in Settings → Paper agents. Live limits arrive with the one-time live enablement, which is not built.' },
   { id: 'settings', label: 'Settings', stage: 0 },
 ] as const;
 
@@ -57,6 +59,15 @@ function useZoom() {
 export function App() {
   const [screen, setScreen] = useState<Id>('numbers');
   const { zoom, setZoom } = useZoom();
+  async function kill() {
+    if (!window.confirm('Kill switch: sell every paper position and stop all agents until you resume?')) return;
+    try {
+      await api.kill('Kill switch pressed');
+      setScreen('portfolio');
+    } catch (e) {
+      window.alert(`Kill switch failed: ${(e as Error).message}`);
+    }
+  }
   const current = SCREENS.find((s) => s.id === screen)!;
   return (
     <div className={zoom >= 150 ? 'app big-zoom' : 'app'}>
@@ -65,7 +76,7 @@ export function App() {
           <span className="flake" aria-hidden="true">
             ❄
           </span>
-          Frost Trader <span className="stage">Stage 0 · read-only</span>
+          Frost Trader <span className="stage">Stage 1 · paper only</span>
         </div>
         <nav aria-label="Screens">
           {SCREENS.map((s) => (
@@ -85,7 +96,7 @@ export function App() {
             +
           </button>
         </div>
-        <button className="kill" disabled title="Nothing is trading in stage 0, so there is nothing to stop. The kill switch is wired in with paper trading.">
+        <button className="kill" onClick={kill} title="Sell everything and stop every paper agent until you resume (Paper portfolio)">
           Kill switch
         </button>
       </header>
@@ -94,6 +105,8 @@ export function App() {
           <StockNumbers />
         ) : screen === 'settings' ? (
           <Settings />
+        ) : screen === 'portfolio' ? (
+          <Portfolio />
         ) : (
           <div className="panel">
             <h2>{current.label}</h2>
@@ -101,7 +114,7 @@ export function App() {
           </div>
         )}
       </main>
-      <footer className="foot small muted">Paper only. Not financial advice. No orders are placed from this app in stage 0.</footer>
+      <footer className="foot small muted">Paper only. Not financial advice. The agents trade paper money on simulated books; no order is sent to a broker and live trading is closed.</footer>
     </div>
   );
 }

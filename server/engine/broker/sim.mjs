@@ -1,9 +1,12 @@
 // The internal paper broker: fills market orders at the given price plus slippage, keeps cash
 // and positions, and refuses anything a cash account can't do (leverage or shorting), as a
 // second line behind the risk guard.
+import { goodQty, roundQty } from '../risk.mjs';
 
 export class SimBroker {
-  constructor({ cash = 10_000, slippageBps = 5, commission = 0 } = {}) {
+  /** fractional: allow fractional quantities (the paper agents), see risk.mjs goodQty. */
+  constructor({ cash = 10_000, slippageBps = 5, commission = 0, fractional = false } = {}) {
+    this.fractional = fractional;
     this.name = 'simulator';
     this.paper = true;
     this.cash = cash;
@@ -31,7 +34,7 @@ export class SimBroker {
 
   /** Fill { symbol, side, qty, price } now. Returns the fill; throws if a cash account can't do it. */
   submit({ symbol, side, qty, price, t = Date.now(), why = '' }) {
-    if (!Number.isInteger(qty) || qty <= 0) throw new Error('Bad quantity');
+    if (!goodQty(qty, this.fractional)) throw new Error('Bad quantity');
     const px = side === 'buy' ? price * (1 + this.slippage) : price * (1 - this.slippage);
     const pos = this.positions[symbol] || { qty: 0, avg: 0 };
     let pnl = 0;
@@ -40,15 +43,15 @@ export class SimBroker {
       if (cost > this.cash + 1e-9) throw new Error('Not enough cash');
       this.cash -= cost;
       pos.avg = (pos.avg * pos.qty + px * qty) / (pos.qty + qty);
-      pos.qty += qty;
+      pos.qty = roundQty(pos.qty + qty);
       this.positions[symbol] = pos;
     } else {
-      if (qty > pos.qty) throw new Error('Cannot sell more than held');
+      if (qty > pos.qty + 1e-9) throw new Error('Cannot sell more than held');
       this.cash += qty * px - this.commission;
       pnl = (px - pos.avg) * qty - this.commission;
       this.realized += pnl;
-      pos.qty -= qty;
-      if (pos.qty === 0) delete this.positions[symbol];
+      pos.qty = roundQty(pos.qty - qty);
+      if (pos.qty <= 0) delete this.positions[symbol];
     }
     this.mark(symbol, price);
     const fill = { t, symbol, side, qty, price: px, pnl, why };

@@ -18,7 +18,7 @@ export type Quote = {
 
 export type Labels = { source: string; lastDay: string | null; ageDays: number | null; notice: string; kind: string };
 
-export type WatchlistHook = { status: 'not-set' | 'set'; symbols: string[]; ageMin: number | null; stale: boolean; how: string; pricesFrom: string };
+export type WatchlistHook = { status: 'not-set' | 'set'; symbols: string[]; ageMin: number | null; stale: boolean; holders: Record<string, string>; how: string; pricesFrom: string };
 
 export type SymbolRow = { symbol: string; name: string; hasVolume: boolean; quote: Quote; spark: number[]; from: string; to: string };
 
@@ -91,6 +91,49 @@ export type FinvizStatus = {
 
 export type FinvizUpdate = { urls?: string[]; intervalMin?: number; token?: string; clearToken?: boolean };
 
+export type Preset = { name: string; riskPerTrade: number; maxPositionPct: number; maxOpenPositions: number; maxTradesPerDay: number; dailyLossPct: number; drawdownPct: number; poolDailyLossPct: number };
+export type AgentParams = { entryScore: number; stopAtr: number; targetAtr: number; maxHold: number };
+export type AgentSettings = { agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams> };
+export type Fill = { t: number; symbol: string; side: 'buy' | 'sell'; qty: number; price: number; pnl: number; why: string };
+export type AgentView = {
+  id: string;
+  running: boolean;
+  process: boolean;
+  allocation: number | null;
+  cash: number | null;
+  equity: number | null;
+  dayPnl: number | null;
+  totalPnl: number | null;
+  positions: { symbol: string; qty: number; avg: number; price: number; plan: { stop: number; target: number; signal: string } | null }[];
+  halt: { day: string; reason: string; at: number } | null;
+  sitOut: number;
+  scale: number;
+  peak: number | null;
+  params: AgentParams;
+  lastProposals: { symbol: string; signal: string; score: number }[];
+  lastDecision: { at: number; symbol: string; ok: boolean; reason: string } | null;
+  recentFills: Fill[];
+  broken: string | null;
+};
+export type AuditEvent = { at: string; type: string; agent?: string; symbol?: string; side?: string; reason?: string; why?: string; kind?: string; qty?: number; price?: number; pnl?: number };
+export type AgentsStatus = {
+  paperOnly: true;
+  live: string;
+  settings: AgentSettings;
+  killed: boolean;
+  killReason: string;
+  integrity: { reason: string; at: number } | null;
+  poolPause: { day: string; reason: string } | null;
+  marketOpen: boolean;
+  lastTick: number | null;
+  lastError: string;
+  pool: number;
+  holders: Record<string, string>;
+  agents: AgentView[];
+  audit: { ok: boolean; lines: number; brokenAt: number | null; recent: AuditEvent[] };
+};
+export type AlpacaStatus = { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null; use: string };
+
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
@@ -99,6 +142,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 const sym = (s: string) => encodeURIComponent(s);
+const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 export const api = {
   overview: () => call<Overview>('/api/numbers'),
@@ -107,6 +151,13 @@ export const api = {
   previewTickers: (text: string) =>
     call<TickerPreview>('/api/numbers/watchlist/preview', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }),
   finviz: () => call<FinvizStatus>('/api/finviz'),
+  agents: () => call<AgentsStatus>('/api/agents'),
+  saveAgents: (u: Partial<AgentSettings> & { preset?: Partial<Preset>; params?: Record<string, Partial<AgentParams>> }) => call<AgentsStatus>('/api/agents/settings', json('PUT', u)),
+  kill: (reason?: string) => call<AgentsStatus>('/api/agents/kill', json('POST', { reason })),
+  resume: () => call<AgentsStatus>('/api/agents/resume', json('POST', {})),
+  alpaca: () => call<AlpacaStatus>('/api/alpaca'),
+  saveAlpaca: (u: { keyId?: string; secret?: string; clear?: boolean }) => call<AlpacaStatus>('/api/alpaca', json('PUT', u)),
+  testAlpaca: () => call<AlpacaStatus>('/api/alpaca/test', json('POST', {})),
   saveFinviz: (u: FinvizUpdate) => call<FinvizStatus>('/api/finviz', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(u) }),
   testFinviz: () => call<FinvizStatus>('/api/finviz/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
 };

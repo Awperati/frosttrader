@@ -188,3 +188,16 @@ button.sm { padding: 2px 8px; font-size: 12px; }
 .chart svg { cursor: crosshair; user-select: none; touch-action: pan-y; }
 .zoom-select { fill: var(--accent); fill-opacity: 0.15; stroke: var(--accent); stroke-opacity: 0.6; }
 .detail, .numbers-grid > * { min-width: 0; }
+
+/* Paper portfolio and agents settings */
+.banner-bad { border-left-color: var(--down); }
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; }
+.agent-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.pill { font-size: 11px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
+.pill.ok { color: var(--up); border-color: var(--up); }
+.pill.bad { color: var(--down); border-color: var(--down); }
+.field-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.field-row .field { flex: 1 1 180px; }
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 0 12px; }
+input.num { width: 90px; text-align: right; }
+td.left { text-align: left; white-space: normal; }

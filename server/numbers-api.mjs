@@ -126,6 +126,7 @@ export function watchlistHook(finviz = null) {
     symbols: list?.symbols || [],
     ageMin: list ? list.ageMin : null,
     stale: !!list?.stale,
+    holders: finviz?.holders || {}, // symbol -> the paper agent holding it
     how: 'Add your Finviz Elite screener URL and API token in Settings, or paste tickers to check them. Frost Trader never logs in to or scrapes Finviz.',
     pricesFrom: 'Prices for your symbols need a licensed source, such as your broker\'s market-data API (Alpaca). Not set up yet.',
   };

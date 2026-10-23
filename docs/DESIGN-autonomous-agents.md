@@ -574,3 +574,24 @@ checkout because `server/engine/data/` is git-ignored, LLM note §1.1; the new t
 4. **What may agents trade?** Only your watchlist (paste or Finviz Elite CSV, LLM note §3), or any US
    stock passing code filters (price ≥ $5, average daily dollar volume ≥ $20 M)? (Recommend: your
    watchlist for live; the wider filtered universe for research and paper only.)
+
+## 12. Built: stage 1 on paper (23 Oct 2026)
+
+The owner's answers: "$250 per. however $10 to start with for testing reasons", Alpaca keys yes, agent
+differences "By settings", halts "completely automated". What runs now (server/engine/agents/host.mjs):
+
+- Up to 4 agents (Settings → Paper agents → agents at once), each a child process started with Node's
+  permission model (reads only server/engine, writes nothing, no child processes, no keys in its
+  environment), answering each tick with buy proposals (ipc.mjs checks every message).
+- Paper money per agent: one setting, $10 now, up to $250; a change applies at the next trading day.
+  Fractional shares (4 decimals, $1 minimum) on each agent's own SimBroker book.
+- Risk preset "Medium" (profile.mjs), all dollar figures as shares of the allocation. Gate check 17
+  AGENT_CAPITAL (risk.mjs agentCapital): watchlist only, symbol lock, own cash and allocation.
+- Exits (stop, target, time, session close) run in the host. Halts are automatic: daily loss (back next
+  day), drawdown (sits out the next trading day, back at half size, full size after 5 clean days), pool
+  daily loss, malformed messages, crash loops. The owner's KILL (button, API, DATA_DIR/KILL) and an
+  integrity halt stay on until he resumes.
+- Hash-chained audit log (audit.mjs), per-signal day notes to the knowledge store (adoption off).
+- Market data: Alpaca IEX bars with his paper key pair (server/alpaca-keys.mjs, write-only; a live
+  "AK" key is refused). No order is ever sent to Alpaca. Live stays closed.
+- Deferred: the research loop (stage 2), adoption of findings, the live sub-ledgers and enablement.

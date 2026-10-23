@@ -348,7 +348,7 @@ function WatchlistPanel({ hook }: { hook: Overview['watchlist'] }) {
       <h3>Your symbols</h3>
       {hook.status === 'set' ? (
         <p className={`small ${hook.stale ? 'notice' : 'muted'}`}>
-          From your Finviz screeners{hook.ageMin != null ? `, fetched ${hook.ageMin} min ago` : ''}{hook.stale ? ' (last fetch failed, so this is the last good list)' : ''}: {hook.symbols.join(', ')}
+          From your Finviz screeners{hook.ageMin != null ? `, fetched ${hook.ageMin} min ago` : ''}{hook.stale ? ' (last fetch failed, so this is the last good list)' : ''}: {hook.symbols.map((x) => (hook.holders?.[x] ? `${x} (held by ${hook.holders[x]})` : x)).join(', ')}
         </p>
       ) : (
         <p className="small muted">Not set up yet. {hook.how}</p>

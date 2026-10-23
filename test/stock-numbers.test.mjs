@@ -256,7 +256,8 @@ test('the numbers API imports no broker', () => {
   for (const f of ['../server/numbers-api.mjs', '../server/engine/numbers.mjs', '../server/engine/data/indexes.mjs', '../server/engine/watchlist-input.mjs', '../server/index.mjs']) {
     const src = fs.readFileSync(path.join(here, f), 'utf8');
     const imports = src.match(/^import .*$/gm) || [];
-    assert.ok(!imports.some((l) => /broker|alpaca|strategy|engine\.mjs/i.test(l)), `${f} must not import a broker or the trading engine`);
+    // Alpaca market data (alpaca-keys, alpaca-data) is allowed; the Alpaca broker (broker/alpaca.mjs) is not
+    assert.ok(!imports.some((l) => /broker|alpaca\.mjs|strategy|engine\.mjs/i.test(l)), `${f} must not import a broker or the trading engine`);
     assert.ok(!/ALPACA_|\/v2\/orders|submit\(/.test(src), `${f} must not touch broker keys or orders`);
   }
 });

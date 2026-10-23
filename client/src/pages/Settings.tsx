@@ -1,13 +1,74 @@
 import { useEffect, useState } from 'react';
-import { api, type FinvizStatus } from '../api';
+import { api, type AlpacaStatus, type FinvizStatus } from '../api';
+import { AgentsCard } from './AgentsSettings';
 
-// Settings, stage 0: the Finviz Elite card. The token field is write-only: the server never sends
-// the token back, so the field starts empty and only says whether one is saved.
+// Settings: the Finviz Elite card, the Alpaca paper keys card and the paper agents card. Token and
+// key fields are write-only: the server never sends them back, so the fields start empty and only
+// say whether something is saved.
 export function Settings() {
   return (
     <div className="settings">
       <FinvizCard />
+      <AlpacaCard />
+      <AgentsCard />
     </div>
+  );
+}
+
+function AlpacaCard() {
+  const [st, setSt] = useState<AlpacaStatus | null>(null);
+  const [keyId, setKeyId] = useState('');
+  const [secret, setSecret] = useState('');
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    api.alpaca().then(setSt, (e) => setErr((e as Error).message));
+  }, []);
+  async function run(label: string, fn: () => Promise<AlpacaStatus>) {
+    setBusy(label);
+    setErr('');
+    try {
+      setSt(await fn());
+      if (label === 'save') {
+        setKeyId('');
+        setSecret('');
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  }
+  if (!st) return <div className="panel">{err ? <p className="error">{err}</p> : <p className="muted">Loading…</p>}</div>;
+  return (
+    <section className="panel finviz" aria-labelledby="alpaca-h">
+      <h2 id="alpaca-h">Alpaca paper keys</h2>
+      <p className="small muted">{st.use} Use your PAPER key pair (the key ID starts with PK); a live key is refused. From Alpaca: Paper Trading → API Keys.</p>
+      <label className="field">
+        <span>Key ID</span>
+        <input type="password" value={keyId} onChange={(e) => setKeyId(e.target.value)} autoComplete="off" spellCheck={false} placeholder={st.set ? 'Saved. Type a new pair to replace it.' : 'PK…'} />
+      </label>
+      <label className="field">
+        <span>Secret key</span>
+        <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="off" spellCheck={false} />
+        <span className="small muted">{st.set ? 'A key pair is saved on this computer. It is never shown again.' : 'No keys saved yet: the agents wait for market data.'}</span>
+      </label>
+      <div className="row">
+        <button onClick={() => run('save', () => api.saveAlpaca({ keyId, secret }))} disabled={!!busy || !keyId.trim() || !secret.trim()}>
+          {busy === 'save' ? 'Saving…' : 'Save'}
+        </button>
+        <button onClick={() => run('test', api.testAlpaca)} disabled={!!busy || !st.set}>
+          {busy === 'test' ? 'Testing…' : 'Test'}
+        </button>
+        {st.set && (
+          <button onClick={() => run('clear', () => api.saveAlpaca({ clear: true }))} disabled={!!busy}>
+            Remove keys
+          </button>
+        )}
+      </div>
+      {err && <p className="error small">{err}</p>}
+      {st.lastTest && <p className={`small ${st.lastTest.ok ? 'up' : 'error'}`}>Test {when(st.lastTest.at)}: {st.lastTest.message}</p>}
+    </section>
   );
 }
 

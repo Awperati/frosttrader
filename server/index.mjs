@@ -1,10 +1,12 @@
-// Frost Trader's HTTP server, stage 0: read-only.
+// Frost Trader's HTTP server: stage 0 views plus the stage 1 PAPER agents.
 //
 //   npm run build && npm start      then open http://127.0.0.1:8787
 //
 // It serves the built client (client/dist) and the read-only /api/numbers routes. It also runs the
-// Finviz Elite screener source (server/engine/finviz.mjs), which fetches ticker names only. It does not
-// start the trading engine, construct a broker, or read broker keys: stage 0 places no orders.
+// Finviz Elite screener source (server/engine/finviz.mjs), which fetches ticker names only, and the
+// paper agents (server/engine/agents/host.mjs): up to 4 sandboxed agents trading paper money on their
+// own simulated books, with market data from Alpaca (the owner's paper keys, data only). No broker is
+// constructed and no order is ever sent to Alpaca; live trading stays closed.
 // It listens on 127.0.0.1 only. Sign-in (server/auth.mjs) must be wired in before it is ever
 // exposed beyond this machine.
 import http from 'node:http';
@@ -16,6 +18,9 @@ import { createNumbersApi } from './numbers-api.mjs';
 import { createFinvizApi } from './finviz-api.mjs';
 import { FinvizSource } from './engine/finviz.mjs';
 import { TickerMirror } from './engine/ticker-mirror.mjs';
+import { AgentHost } from './engine/agents/host.mjs';
+import { AlpacaKeys } from './alpaca-keys.mjs';
+import { createAgentsApi } from './agents-api.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(root, 'data'));
@@ -32,7 +37,12 @@ const finvizSource = new FinvizSource({ dataDir: DATA_DIR, onChange: () => mirro
 if (process.env.TICKER_MIRROR !== '0') mirror = new TickerMirror({ dataDir: DATA_DIR, list: () => finvizSource.listInfo() }).start();
 finvizSource.start();
 const finviz = createFinvizApi({ source: finvizSource, mirror });
-const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => finvizSource.status() });
+// The paper agents (AGENTS=0: off). They trade only the Finviz watchlist, on paper.
+const alpacaKeys = new AlpacaKeys({ dataDir: DATA_DIR });
+const host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client() });
+if (process.env.AGENTS !== '0') host.start();
+const agents = createAgentsApi({ host, keys: alpacaKeys });
+const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => ({ ...finvizSource.status(), holders: host.holders() }) });
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -81,6 +91,11 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/finviz' || url.pathname.startsWith('/api/finviz/')) {
       const body = req.method === 'PUT' ? await readJson(req, 16 * 1024) : null;
       const out = await finviz.handle(req.method, url.pathname, req.headers, body);
+      return send(res, out.status, out.body);
+    }
+    if (/^\/api\/(agents|alpaca)(\/|$)/.test(url.pathname)) {
+      const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 32 * 1024) : null;
+      const out = await agents.handle(req.method, url.pathname, req.headers, body);
       return send(res, out.status, out.body);
     }
     if (url.pathname.startsWith('/api/')) throw new HttpError(404, 'Not found');
