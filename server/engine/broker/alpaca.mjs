@@ -10,6 +10,15 @@
 // Alpaca's v2 documentation.
 
 export const PAPER_URL = 'https://paper-api.alpaca.markets';
+/**
+ * Order calls in this paper adapter are switched OFF. It is left from the first skeleton
+ * (engine.mjs, which the server does not start); the paper agents trade on SimBroker books and live
+ * orders go only through broker/alpaca-live.mjs behind the owner's enablement. A test keeps this false.
+ */
+export const PAPER_ORDERS_ENABLED = false;
+const ordersOff = () => {
+  if (!PAPER_ORDERS_ENABLED) throw new Error('Order calls in the Alpaca paper adapter are switched off (PAPER_ORDERS_ENABLED).');
+};
 const DATA_URL = 'https://data.alpaca.markets';
 
 export class AlpacaBroker {
@@ -50,6 +59,7 @@ export class AlpacaBroker {
 
   /** Market order, day only. Waits briefly for the fill and returns it like SimBroker does. */
   async submit({ symbol, side, qty, t = Date.now(), why = '' }) {
+    ordersOff();
     const o = await this.call(PAPER_URL, '/v2/orders', { method: 'POST', body: JSON.stringify({ symbol, qty: String(qty), side, type: 'market', time_in_force: 'day' }) });
     let filled = o;
     for (let n = 0; n < 10 && filled.status !== 'filled'; n++) {
@@ -63,6 +73,7 @@ export class AlpacaBroker {
 
   /** Cancel open orders and close every position (the kill switch). */
   async flatten() {
+    ordersOff();
     await this.call(PAPER_URL, '/v2/orders', { method: 'DELETE' });
     await this.call(PAPER_URL, '/v2/positions?cancel_orders=true', { method: 'DELETE' });
     await this.refresh();

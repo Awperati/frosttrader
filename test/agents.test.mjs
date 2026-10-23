@@ -567,3 +567,25 @@ test("paper money is in AUD: the books get AUD × the day's rate; the AUD amount
   assert.match(st.lastError, /No AUD → US dollar rate/);
   host.stop();
 });
+
+test('the old Alpaca paper adapter cannot send an order, and nothing the server starts reaches it', async () => {
+  const { AlpacaBroker, PAPER_ORDERS_ENABLED } = await import('../server/engine/broker/alpaca.mjs');
+  assert.equal(PAPER_ORDERS_ENABLED, false);
+  let calls = 0;
+  const b = new AlpacaBroker({ keyId: 'PKX', secret: 'Y', fetchImpl: async () => (calls++, { ok: true, status: 200, json: async () => ({}) }) });
+  await assert.rejects(b.submit({ symbol: 'AAPL', side: 'buy', qty: 1 }), /switched off/);
+  await assert.rejects(b.flatten(), /switched off/);
+  assert.equal(calls, 0, 'no request left the adapter');
+  // walk every import from server/index.mjs: neither the adapter nor the old engine is reachable
+  const seen = new Set();
+  const walk = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const src = fs.readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/^import [^'"]*['"](\.[^'"]+)['"]/gm)) walk(path.resolve(path.dirname(file), m[1]));
+  };
+  walk(path.join(here, '..', 'server', 'index.mjs'));
+  const rel = [...seen].map((f) => path.relative(path.join(here, '..'), f).split(path.sep).join('/'));
+  assert.ok(rel.includes('server/engine/agents/host.mjs'), 'the walk works');
+  for (const bad of ['server/engine/broker/alpaca.mjs', 'server/engine/engine.mjs', 'server/engine/strategy.mjs']) assert.ok(!rel.includes(bad), `${bad} is reachable from the server`);
+});
