@@ -6,7 +6,7 @@ import { api, type Detail, type HistoryPage, type Overview, type SymbolRow, type
 import { PriceChart, Sparkline } from '../components/PriceChart';
 import { age, compact, day, num, pct, plainPct, signed, tone } from '../format';
 
-const RANGES = ['1M', '3M', '1Y', 'All'];
+const RANGES = ['1M', '3M', '6M', '1Y', 'All'];
 
 export function StockNumbers() {
   const [ov, setOv] = useState<Overview | null>(null);

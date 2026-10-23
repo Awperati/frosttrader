@@ -72,7 +72,19 @@ input, textarea {
   width: 100%;
 }
 
-.app { min-height: 100vh; display: flex; flex-direction: column; }
+/* The app's own zoom (zoom.ts): CSS zoom on .app; the browser's page zoom is left alone. Heights tied to
+   the viewport are divided by it, so a zoomed page still fits the window. */
+:root { --zoom: 1; }
+.app { zoom: var(--zoom); min-height: calc(100vh / var(--zoom)); display: flex; flex-direction: column; }
+main { container-type: inline-size; }
+.zoom { display: inline-flex; }
+/* zoomed far in, a sticky header could cover half a small window: let it scroll away */
+.big-zoom .top { position: static; }
+.big-zoom .symbols { position: static; max-height: none; }
+.zoom button { border-radius: 0; min-width: 32px; font-variant-numeric: tabular-nums; }
+.zoom button:first-child { border-radius: 7px 0 0 7px; }
+.zoom button:last-child { border-radius: 0 7px 7px 0; }
+.zoom button + button { margin-left: -1px; }
 .top {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
@@ -94,9 +106,9 @@ main { flex: 1; padding: 16px 18px; max-width: 1400px; width: 100%; margin: 0 au
 .notice { color: var(--warn); margin-top: 4px; }
 
 .numbers-grid { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 12px; align-items: start; }
-@media (max-width: 860px) { .numbers-grid { grid-template-columns: 1fr; } }
+@container (max-width: 860px) { .numbers-grid { grid-template-columns: 1fr; } }
 
-.symbols { position: sticky; top: 64px; max-height: calc(100vh - 80px); display: flex; flex-direction: column; }
+.symbols { position: sticky; top: 64px; max-height: calc(100vh / var(--zoom) - 80px); display: flex; flex-direction: column; }
 .symbols-head { display: flex; justify-content: space-between; align-items: baseline; }
 .search { margin: 6px 0 8px; }
 .symbol-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 120px; }
@@ -169,3 +181,10 @@ tbody tr:hover { background: var(--panel-2); }
 select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; }
 .finviz .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .finviz-status { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; overflow-wrap: anywhere; }
+
+/* Chart zoom (PriceChart) */
+.chart-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+button.sm { padding: 2px 8px; font-size: 12px; }
+.chart svg { cursor: crosshair; user-select: none; touch-action: pan-y; }
+.zoom-select { fill: var(--accent); fill-opacity: 0.15; stroke: var(--accent); stroke-opacity: 0.6; }
+.detail, .numbers-grid > * { min-width: 0; }

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { ZOOM, clampZoom, loadZoom, saveZoom, stepZoom, zoomKey } from './zoom';
 import { StockNumbers } from './pages/StockNumbers';
 import { Settings } from './pages/Settings';
 
@@ -14,11 +15,51 @@ const SCREENS = [
 
 type Id = (typeof SCREENS)[number]['id'];
 
+const storage = () => {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+};
+
+/** The app's own zoom: header buttons, Ctrl+= / Ctrl+− / Ctrl+0 and Ctrl+wheel (zoom.ts). */
+function useZoom() {
+  const [zoom, setZoomState] = useState(() => loadZoom(storage()));
+  const setZoom = (n: number) => setZoomState(clampZoom(n));
+  useEffect(() => {
+    saveZoom(storage(), zoom);
+    document.documentElement.style.setProperty('--zoom', String(zoom / 100));
+  }, [zoom]);
+  useEffect(() => {
+    // taken from the browser (preventDefault) so its own page zoom doesn't change as well
+    const onKey = (e: KeyboardEvent) => {
+      const k = zoomKey(e);
+      if (k == null) return;
+      e.preventDefault();
+      setZoomState((z) => (k === 0 ? ZOOM.normal : stepZoom(z, k)));
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.deltaY) return;
+      e.preventDefault();
+      setZoomState((z) => stepZoom(z, e.deltaY < 0 ? 1 : -1));
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('wheel', onWheel);
+    };
+  }, []);
+  return { zoom, setZoom };
+}
+
 export function App() {
   const [screen, setScreen] = useState<Id>('numbers');
+  const { zoom, setZoom } = useZoom();
   const current = SCREENS.find((s) => s.id === screen)!;
   return (
-    <div className="app">
+    <div className={zoom >= 150 ? 'app big-zoom' : 'app'}>
       <header className="top">
         <div className="brand">
           <span className="flake" aria-hidden="true">
@@ -33,6 +74,17 @@ export function App() {
             </button>
           ))}
         </nav>
+        <div className="zoom" role="group" aria-label="Zoom">
+          <button onClick={() => setZoom(stepZoom(zoom, -1))} disabled={zoom <= ZOOM.min} title="Zoom out (Ctrl+−)" aria-label="Zoom out">
+            −
+          </button>
+          <button onClick={() => setZoom(ZOOM.normal)} title="Back to 100% (Ctrl+0)" aria-label={`Zoom ${zoom}%, reset to 100%`}>
+            {zoom}%
+          </button>
+          <button onClick={() => setZoom(stepZoom(zoom, 1))} disabled={zoom >= ZOOM.max} title="Zoom in (Ctrl+=)" aria-label="Zoom in">
+            +
+          </button>
+        </div>
         <button className="kill" disabled title="Nothing is trading in stage 0, so there is nothing to stop. The kill switch is wired in with paper trading.">
           Kill switch
         </button>
