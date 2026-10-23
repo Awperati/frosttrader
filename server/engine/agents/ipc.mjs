@@ -5,12 +5,14 @@
 import { STOCK } from '../risk.mjs';
 
 export const MAX_PROPOSALS = 10;
+export const MAX_CONSIDERED = 40;
+const WHY = ['below-entry', 'tell', 'no-signal', 'few-bars'];
 
 /**
  * Check one message from an agent. Returns { ok: true, msg } with only the known fields, or
  * { ok: false, reason }.
  *   { type: 'ready' }
- *   { type: 'proposals', t, items: [{ symbol, action: 'buy', signal, score }] }
+ *   { type: 'proposals', t, items: [{ symbol, action: 'buy', signal, score }], considered?: [{ symbol, why, signal?, score? }] }
  *   { type: 'log', text }
  */
 export function checkAgentMessage(m) {
@@ -25,7 +27,7 @@ export function checkAgentMessage(m) {
       if (!only('type', 'text') || typeof m.text !== 'string') return bad('bad log');
       return { ok: true, msg: { type: 'log', text: m.text.slice(0, 300) } };
     case 'proposals': {
-      if (!only('type', 't', 'items') || !Number.isFinite(m.t) || !Array.isArray(m.items)) return bad('bad proposals');
+      if (!only('type', 't', 'items', 'considered') || !Number.isFinite(m.t) || !Array.isArray(m.items)) return bad('bad proposals');
       if (m.items.length > MAX_PROPOSALS) return bad(`more than ${MAX_PROPOSALS} proposals`);
       const items = [];
       for (const p of m.items) {
@@ -36,7 +38,18 @@ export function checkAgentMessage(m) {
         if (!Number.isFinite(p.score) || p.score < -1 || p.score > 1) return bad('bad score');
         items.push({ symbol: p.symbol, action: 'buy', signal: p.signal, score: p.score });
       }
-      return { ok: true, msg: { type: 'proposals', t: m.t, items } };
+      const considered = [];
+      if (m.considered !== undefined) {
+        if (!Array.isArray(m.considered) || m.considered.length > MAX_CONSIDERED) return bad('bad considered list');
+        for (const c of m.considered) {
+          if (!c || typeof c !== 'object' || !Object.keys(c).every((k) => ['symbol', 'why', 'signal', 'score'].includes(k))) return bad('unknown considered fields');
+          if (typeof c.symbol !== 'string' || !STOCK.test(c.symbol) || !WHY.includes(c.why)) return bad('bad considered entry');
+          if (c.signal !== undefined && (typeof c.signal !== 'string' || !/^[a-z_]{1,32}$/.test(c.signal))) return bad('bad signal id');
+          if (c.score !== undefined && (!Number.isFinite(c.score) || c.score < -1 || c.score > 1)) return bad('bad score');
+          considered.push({ symbol: c.symbol, why: c.why, ...(c.signal ? { signal: c.signal } : {}), ...(c.score !== undefined ? { score: c.score } : {}) });
+        }
+      }
+      return { ok: true, msg: { type: 'proposals', t: m.t, items, considered } };
     }
     default:
       return bad('unknown message type');

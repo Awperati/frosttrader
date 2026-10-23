@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type AgentsStatus, type AgentView } from '../api';
 import { num, signed, tone } from '../format';
+import { DaySummaryCard, DecisionLog, ExportLinks, StatsView, nyToday } from './AgentInsight';
 
 // Paper portfolio: one card per paper agent (server/engine/agents/host.mjs), the kill switch state and
 // the latest audit events. Paper money only; live trading is closed.
@@ -13,6 +14,8 @@ export function Portfolio() {
   const [st, setSt] = useState<AgentsStatus | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<'overview' | 'log' | 'stats' | 'export'>('overview');
+  const [day, setDay] = useState(nyToday());
 
   useEffect(() => {
     let live = true;
@@ -40,7 +43,7 @@ export function Portfolio() {
   if (!st) return <div className="panel">{err ? <p className="error">{err}</p> : <p className="muted">Loading…</p>}</div>;
   const stopped = st.killed || !!st.integrity;
   const total = st.agents.reduce((s, a) => s + (a.equity ?? 0), 0);
-  const day = st.agents.reduce((s, a) => s + (a.dayPnl ?? 0), 0);
+  const todayPnl = st.agents.reduce((s, a) => s + (a.dayPnl ?? 0), 0);
 
   return (
     <div className="portfolio">
@@ -61,6 +64,47 @@ export function Portfolio() {
           </div>
         )}
       </div>
+      <div className="toolbar">
+        <div className="seg" role="tablist" aria-label="Paper portfolio views">
+          {(
+            [
+              ['overview', 'Overview'],
+              ['log', 'Decision log'],
+              ['stats', 'Stats'],
+              ['export', 'Export'],
+            ] as const
+          ).map(([id, label]) => (
+            <button key={id} role="tab" className={view === id ? 'on' : ''} aria-selected={view === id} onClick={() => setView(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {(view === 'overview' || view === 'log') && (
+          <label className="field inline">
+            <span>Day (New York)</span>
+            <input type="date" value={day} max={nyToday()} onChange={(e) => e.target.value && setDay(e.target.value)} />
+          </label>
+        )}
+      </div>
+      {view === 'log' && (
+        <div className="panel">
+          <h3>What the agents did, {day}</h3>
+          <DecisionLog day={day} />
+        </div>
+      )}
+      {view === 'stats' && <StatsView />}
+      {view === 'export' && (
+        <div className="panel">
+          <h3>Export</h3>
+          <ExportLinks day={day} />
+        </div>
+      )}
+      {view === 'overview' && (
+        <>
+      <div className="panel">
+        <h3>Day summary, {day}</h3>
+        <DaySummaryCard day={day} />
+      </div>
       <div className="facts">
         <div>
           <dt>Paper equity, all agents</dt>
@@ -68,7 +112,7 @@ export function Portfolio() {
         </div>
         <div>
           <dt>Today</dt>
-          <dd className={tone(day)}>{signed(day)}</dd>
+          <dd className={tone(todayPnl)}>{signed(todayPnl)}</dd>
         </div>
         <div>
           <dt>Audit log</dt>
@@ -105,6 +149,8 @@ export function Portfolio() {
           </table>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

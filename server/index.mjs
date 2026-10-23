@@ -98,7 +98,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (/^\/api\/(agents|alpaca)(\/|$)/.test(url.pathname)) {
       const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 32 * 1024) : null;
-      const out = await agents.handle(req.method, url.pathname, req.headers, body);
+      const out = await agents.handle(req.method, url.pathname, req.headers, body, url.searchParams);
+      if (out.download) {
+        res.writeHead(out.status, { 'content-type': out.type, 'content-disposition': `attachment; filename="${out.download}"`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        return res.end(out.body);
+      }
       return send(res, out.status, out.body);
     }
     if (url.pathname.startsWith('/api/')) throw new HttpError(404, 'Not found');

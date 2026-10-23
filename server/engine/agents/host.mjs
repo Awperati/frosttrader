@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { SandboxManager } from './sandbox.mjs';
 import { KnowledgeStore } from './knowledge.mjs';
 import { AuditLog } from './audit.mjs';
+import { Journal } from './journal.mjs';
 import { checkAgentMessage } from './ipc.mjs';
 import { AGENT_IDS, DEFAULT_SETTINGS, MAX_AGENTS, cleanSettings, limitsFor } from './profile.mjs';
 import { STOCK, agentCapital, positionSize } from '../risk.mjs';
@@ -95,6 +96,8 @@ export class AgentHost {
     this.busy = null;
     this.barCache = {}; // symbol -> recent 5-minute bars, oldest first
     this.refusedAt = new Map();
+    this.consideredAt = new Map();
+    this.journal = new Journal({ dataDir, now });
   }
 
   // ── sandboxes ──────────────────────────────────────────────
@@ -192,11 +195,20 @@ export class AgentHost {
   }
 
   flatten(id, sb, why) {
-    for (const [symbol, p] of Object.entries(sb.broker.positions)) {
-      const r = sb.submit({ symbol, side: 'sell', qty: p.qty, price: sb.broker.prices[symbol] ?? p.avg, t: this.now(), why });
-      this.audit.write({ type: r.ok ? 'fill' : 'refused', agent: id, side: 'sell', symbol, qty: p.qty, why, ...(r.ok ? { price: r.fill.price, pnl: r.fill.pnl } : { reason: r.reason }) });
-    }
+    for (const [symbol, p] of Object.entries(sb.broker.positions)) this.sell(id, sb, symbol, sb.broker.prices[symbol] ?? p.avg, this.now(), why);
     if (this.state.agents[id]) this.state.agents[id].plans = {};
+  }
+
+  /** What the agent looked at and passed on: one line per symbol and reason, at most every 30 minutes. */
+  logConsidered(id, list) {
+    const entry = this.settings.params[id].entryScore;
+    for (const c of list) {
+      const key = `${id}|${c.symbol}|${c.why}|${c.score == null ? '' : Math.round(c.score * 10)}`;
+      if (this.now() - (this.consideredAt.get(key) ?? 0) < 30 * 60_000) continue;
+      this.consideredAt.set(key, this.now());
+      this.journal.decide(id, { kind: 'considered', symbol: c.symbol, why: c.why, signal: c.signal, score: c.score, entry });
+    }
+    if (this.consideredAt.size > 5000) this.consideredAt.clear();
   }
 
   // ── children ───────────────────────────────────────────────
@@ -238,7 +250,7 @@ export class AgentHost {
     if (v.msg.type === 'proposals') {
       const c = this.children.get(id);
       if (c?.waiting && c.waiting.t === v.msg.t) {
-        c.waiting.resolve(v.msg.items);
+        c.waiting.resolve(v.msg);
         c.waiting = null;
       }
     }
@@ -287,6 +299,7 @@ export class AgentHost {
     if (sb) this.flatten(id, sb, `halt: ${reason}`);
     this.stopChild(id);
     this.audit.write({ type: 'halt', agent: id, kind: 'day', reason });
+    this.journal.decide(id, { kind: 'halt', reason });
   }
 
   drawdownHalt(id, equity) {
@@ -347,6 +360,7 @@ export class AgentHost {
           a.scale = HALF;
           a.peak = sb.broker.equity();
           this.audit.write({ type: 'resume', agent: id, after: 'drawdown halt', scale: HALF });
+          this.journal.decide(id, { kind: 'resume', reason: 'after a drawdown halt and a day out, at half size' });
         }
       } else if (a.scale < 1) {
         a.cleanDays++;
@@ -389,6 +403,7 @@ export class AgentHost {
       }
     }
     this.audit.write({ type: 'day-end', day });
+    this.journal.prune(AGENT_IDS);
   }
 
   /** One pass. Returns status(). Never throws. */
@@ -473,8 +488,10 @@ export class AgentHost {
       const answers = await Promise.all(
         ids.map(async (id) => [id, await this.ask(id, { type: 'tick', t: now, params: this.settings.params[id], bars: sent, held: Object.keys(this.holders()) })]),
       );
-      for (const [id, items] of answers) {
-        this.state.agents[id].lastProposals = items || [];
+      for (const [id, ans] of answers) {
+        const items = ans?.items || [];
+        this.state.agents[id].lastProposals = items;
+        this.logConsidered(id, ans?.considered || []);
         for (const p of items || []) this.enter(id, p, bars[p.symbol] || [], universe);
       }
     }
@@ -539,9 +556,29 @@ export class AgentHost {
   sell(id, sb, symbol, price, t, why) {
     const qty = sb.broker.positions[symbol]?.qty;
     if (!qty) return;
+    const plan = this.state.agents[id].plans[symbol];
+    const avg = sb.broker.positions[symbol].avg;
     const r = sb.submit({ symbol, side: 'sell', qty, price, t, why });
     delete this.state.agents[id].plans[symbol];
     this.audit.write({ type: r.ok ? 'fill' : 'refused', agent: id, side: 'sell', symbol, qty, why, ...(r.ok ? { price: r.fill.price, pnl: r.fill.pnl } : { reason: r.reason }) });
+    if (!r.ok) return;
+    const rate = this.getFx()?.rate ?? null;
+    const pnlAud = rate ? r.fill.pnl / rate : null;
+    this.journal.decide(id, { kind: 'sold', symbol, qty, price: r.fill.price, why, pnlUsd: r.fill.pnl, rate });
+    this.journal.trade(id, {
+      day: nyClock(t).day,
+      symbol,
+      signal: plan?.signal ?? 'adopted',
+      qty,
+      entryT: plan?.entryT ?? null,
+      entry: plan?.entry ?? avg,
+      exitT: t,
+      exit: why,
+      exitPrice: r.fill.price,
+      pnlUsd: r.fill.pnl,
+      pnlAud,
+      rate,
+    });
   }
 
   enter(id, p, list, universe) {
@@ -553,6 +590,7 @@ export class AgentHost {
       const key = `${id}|${p.symbol}|${reason}`;
       if (!ok && this.now() - (this.refusedAt.get(key) ?? 0) < 30 * 60_000) return;
       if (!ok) this.refusedAt.set(key, this.now());
+      if (!ok) this.journal.decide(id, { kind: 'refused', symbol: p.symbol, signal: p.signal, score: p.score, reason });
       this.audit.write({ type: ok ? 'fill' : 'refused', agent: id, side: 'buy', symbol: p.symbol, signal: p.signal, score: p.score, reason, ...extra });
     };
     if (!sb || a.dayHalt || this.state.killed) return;
@@ -572,8 +610,9 @@ export class AgentHost {
     if (!gate.ok) return decide(false, gate.reason);
     const res = sb.submit({ ...order, why: `entry: ${p.signal} ${p.score.toFixed(2)}` });
     if (!res.ok) return decide(false, res.reason);
-    a.plans[p.symbol] = { entry: res.fill.price, stop, target: b.c + params.targetAtr * r, held: 0, signal: p.signal };
+    a.plans[p.symbol] = { entry: res.fill.price, stop, target: b.c + params.targetAtr * r, held: 0, signal: p.signal, entryT: b.t };
     a.lastBarT[p.symbol] = b.t;
+    this.journal.decide(id, { kind: 'bought', symbol: p.symbol, qty, price: res.fill.price, rate: this.getFx()?.rate ?? null, signal: p.signal, score: p.score, stop, target: a.plans[p.symbol].target });
     decide(true, 'filled on paper', { qty, price: res.fill.price });
   }
 

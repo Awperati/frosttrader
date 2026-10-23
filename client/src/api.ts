@@ -135,6 +135,13 @@ export type AgentsStatus = {
   agents: AgentView[];
   audit: { ok: boolean; lines: number; brokenAt: number | null; recent: AuditEvent[] };
 };
+export type Decision = { t: number; day: string; agent: string; kind: 'considered' | 'bought' | 'refused' | 'sold' | 'halt' | 'resume' | 'note'; symbol?: string; text: string };
+export type TradeBrief = { symbol: string; signal: string; pnlUsd: number; pnlAud: number | null; exit: string; day: string } | null;
+export type Tally = { trades: number; wins: number; winRate: number | null; pnlUsd: number; pnlAud: number; avgAud: number | null; best: TradeBrief; worst: TradeBrief };
+export type DaySummary = { day: string; agents: (Tally & { agent: string; halts: string[]; considered: number; refusals: Record<string, number> })[]; all: Tally & { halts: number } };
+export type Group = Tally & { key: string };
+export type AgentStats = { from: string; agent: string | null; all: Tally; bySignal: Group[]; bySymbol: Group[]; byTime: Group[]; byExit: Group[] };
+
 export type AlpacaStatus = { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null; use: string };
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -158,6 +165,10 @@ export const api = {
   saveAgents: (u: Partial<AgentSettings> & { preset?: Partial<Preset>; params?: Record<string, Partial<AgentParams>> }) => call<AgentsStatus>('/api/agents/settings', json('PUT', u)),
   kill: (reason?: string) => call<AgentsStatus>('/api/agents/kill', json('POST', { reason })),
   resume: () => call<AgentsStatus>('/api/agents/resume', json('POST', {})),
+  decisions: (day: string, agent = '') => call<{ day: string; decisions: Decision[] }>(`/api/agents/decisions?${new URLSearchParams({ day, ...(agent ? { agent } : {}), limit: '500' })}`),
+  summary: (day: string) => call<DaySummary>(`/api/agents/summary?day=${day}`),
+  stats: (agent = '', days = 30) => call<AgentStats>(`/api/agents/stats?${new URLSearchParams({ days: String(days), ...(agent ? { agent } : {}) })}`),
+  exportUrl: (what: 'trades' | 'decisions' | 'days', format: 'csv' | 'json', from: string, to: string) => `/api/agents/export?${new URLSearchParams({ what, format, from, to })}`,
   alpaca: () => call<AlpacaStatus>('/api/alpaca'),
   saveAlpaca: (u: { keyId?: string; secret?: string; clear?: boolean }) => call<AlpacaStatus>('/api/alpaca', json('PUT', u)),
   testAlpaca: () => call<AlpacaStatus>('/api/alpaca/test', json('POST', {})),

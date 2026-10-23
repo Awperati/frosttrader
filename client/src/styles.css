@@ -201,3 +201,15 @@ button.sm { padding: 2px 8px; font-size: 12px; }
 .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 0 12px; }
 input.num { width: 90px; text-align: right; }
 td.left { text-align: left; white-space: normal; }
+
+/* Decision log, stats, export */
+.decisions { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; font-size: 13px; }
+.decision { padding: 4px 2px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.decision.bought b, .decision.sold b { color: var(--accent); }
+.decision.refused { color: var(--muted); }
+.decision.halt { color: var(--down); }
+.decision.considered { color: var(--muted); font-size: 12px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 12px; }
+.button-link { display: inline-block; padding: 5px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); color: var(--text); text-decoration: none; }
+.button-link:hover { border-color: var(--accent); }
+.export .row { display: flex; gap: 8px; flex-wrap: wrap; }
