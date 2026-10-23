@@ -603,54 +603,40 @@ Frost AI Console over Tailscale with its own API key. Deploys and Pi changes nee
 
 ---
 
-## 13. The Hugging Face index dataset
+## 13. Historical data for backtests (the Hugging Face index dataset)
 
-The owner pasted `pettah/global-top-Index-exploring-trends-in-stock-Market`
-(`Stock_Market_Indexes.csv`, MIT on the card). From the dataset page (not downloaded): **about 50.1k
-rows** and columns `Date, Name, Symbol, Open, High, Low, Close, Adj Close, Volume`. It covers **32
-indices** (S&P 500, Dow, NASDAQ Composite, CAC 40, DAX, Nikkei 225, Hang Seng, ASX 200, Sensex,
-IBOVESPA…). Dates are **DD-MM-YYYY**. Volume is text, with `-` for several indices. The card says it
-was **scraped from Yahoo Finance** with Selenium and BeautifulSoup. The data ends in April 2024.
+The dataset loader, its git-ignored folder (`data/datasets/`), and the screens and data flow that
+use it belong to the stage-0 "Stock numbers" work (branch `stock-numbers`, `docs/APP-DESIGN.md`).
+This note doesn't duplicate them. It says only how backtests and gate tests should treat that data.
 
-### (1) Wire it into the backtest harness? **No, not as a fixture.**
+`pettah/global-top-Index-exploring-trends-in-stock-Market` (`Stock_Market_Indexes.csv`), from the
+dataset page: about 50.1k daily rows for 32 **indices**, with columns
+`Date, Name, Symbol, Open, High, Low, Close, Adj Close, Volume`. Dates are DD-MM-YYYY, volume is text
+with `-` gaps, the data ends in April 2024, and the card says it was scraped from Yahoo Finance.
 
-- **It doesn't fit the strategy.** `Trader` is an intraday strategy on 5-minute bars. With one daily
-  bar, `nyClock()` puts each bar at a midnight timestamp (20:00 or 19:00 New York the previous day),
-  so `marketOpen` and the entry windows never match and nothing trades. Or, if forced, it trades on
-  nonsense timing. Signals like wash-volume need real volume, which is missing for several indices.
-- **It doesn't fit the loader.** `csv.mjs` expects one file per symbol and `Date.parse`. In Node,
-  `02-04-2024` parses as 4 February in local time, and `25-04-2024` is `NaN`, so the row is dropped.
-  The dates would come out silently wrong or missing. It would also keep `NaN` volumes. Making it work needs a new
-  multi-symbol, day-first loader for data the app can't trade.
-- **The gate would reject every row anyway.** Index symbols like `^GSPC` fail `STOCK`.
-  That rejection is worth one test, which a hand-written one-line fixture covers.
-- **Provenance**: the MIT label is the uploader's. The numbers were scraped from Yahoo, whose terms
-  don't grant redistribution, so the licence can't be relied on for anything kept long-term.
-- **Gate sanity checks are better with synthetic data.** Replaying a daily-loss halt, a stale-data gap,
-  a 20 % jump or a missing bar needs *controlled* faults. `synthetic.mjs` is seeded and repeatable, so
-  a test can inject exactly the fault it checks. Real index days add noise without making the test
-  any stronger.
+How backtests should use it:
 
-If the owner still wants it for eyeballing long-run index behaviour, it could be a one-off
-`scripts/fetch-hf-indexes.mjs` that downloads to `data/external/` (git-ignored by `/data`) and stays
-out of tests and the engine. **Recommendation: skip it.**
+- **Not as input to the intraday strategy.** `Trader` trades 5-minute bars. A daily bar stamped at
+  midnight falls outside `marketOpen()` and the entry windows. Load the data through the
+  `stock-numbers` loader for display and daily-level studies only, never through
+  `server/engine/data/csv.mjs`. In Node, `Date.parse('02-04-2024')` gives 4 February and
+  `'25-04-2024'` gives `NaN`, so the generic CSV loader would silently mangle it.
+- **Not for the gate's fault tests.** Daily-loss halts, stale-data gaps, price jumps and missing bars
+  are tested with seeded `synthetic.mjs` data, where each test injects exactly the fault it checks.
+  The index file can at most be a second, *daily-granularity* replay of the daily-loss halt. One fact
+  from it is worth a unit test: index symbols like `^GSPC` must be rejected by the allow-list and
+  `STOCK`.
+- **Never as evidence about the LLM.** The model is measured only forward (shadow and paper). See §9.
+- **Labelled as third-party scraped data.** Its MIT tag is the uploader's, and the numbers came from
+  Yahoo, so it stays local, uncommitted, and is shown with its source and end date.
 
-### (2) What real per-ticker history to use instead
-
-1. **Alpaca market data (recommended).** It is the same source the paper and live engine will trade
-   on, so backtest and paper bars agree. It is already coded (`AlpacaBroker.bars`, paged). On the free
-   plan, historical bars come from the IEX feed, or full SIP when older than 15 minutes, and go back to
-   2016. Its terms cover use within the owner's own account. Add `scripts/fetch-bars.mjs SYMBOLS
-   --from --to --timeframe 5Min`, which writes `DATA_DIR/bars/<SYMBOL>.csv` in the existing `t,o,h,l,c,v`
-   format (git-ignored, never committed) for the watchlist symbols. It needs only the paper keys
-   already planned. Caveat: IEX volume is a slice of total volume, so volume-based signals read
-   differently than on the consolidated tape. The report says which feed was used.
-2. Alternatives with free tiers whose terms allow personal research use, if a second opinion is wanted:
-   **Tiingo** (daily end-of-day and IEX intraday, personal-use licence) or **Polygon/Massive free**
-   (2 years, 5 calls per minute, end-of-day and minute aggregates). Both need their own key in the
-   secret store.
-3. **Not used**: Yahoo Finance or Finviz scraping (terms), and redistributed scraped datasets like
-   the one above.
+Real per-ticker history for backtests: **Alpaca market data**. It is the same source paper and live
+trade on, and it is already coded in `AlpacaBroker.bars`. A `scripts/fetch-bars.mjs` would write
+`DATA_DIR/bars/<SYMBOL>.csv` in the existing `t,o,h,l,c,v` format for the watchlist, git-ignored. On
+the free plan that is the IEX feed, or SIP for data older than 15 minutes, back to 2016. IEX volume is
+a slice of total volume, and the report names the feed. If a second source is wanted, Tiingo or the
+Polygon free tier (personal-use terms, own key in the secret store) could be used. Yahoo or Finviz
+scraping is not.
 
 ---
 
