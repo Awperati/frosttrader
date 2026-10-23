@@ -3,9 +3,13 @@
 Status: 23 Oct 2026, branch `stock-numbers`. Stage 0 (read-only). Only the **Stock numbers** screen
 is built. No order has been placed, and no broker key is used.
 
-The LLM proposal format, the gate's checks, the kill switch, the audit log and the stage exit criteria
-are covered in [DESIGN-llm-automation.md](./DESIGN-llm-automation.md), which is on branch
-`llm-automation-design` until it is merged. This note covers the app around them and doesn't repeat them.
+This note covers **screens and data flow** only. Two other documents cover the rest:
+
+- [DESIGN-autonomous-agents.md](./DESIGN-autonomous-agents.md), being written by another agent, covers the
+  trading-agent architecture. The owner now wants fully autonomous trading by several agents, each in
+  its own sandbox. Where that file and this one disagree about agents, that file wins.
+- [DESIGN-llm-automation.md](./DESIGN-llm-automation.md), on branch `llm-automation-design` until it is
+  merged, covers the deterministic gate, the kill switch, the audit log and the stage exit criteria.
 
 Paper only. Not financial advice. Nothing in the app predicts prices or claims a profit.
 
@@ -16,7 +20,7 @@ Paper only. Not financial advice. Nothing in the app predicts prices or claims a
 | Screen | What it shows | Built |
 |---|---|---|
 | **Stock numbers** | A symbol list (the dataset's indices now, the owner's watchlist later). For each symbol: the last value, change and % change, sparkline. A detail pane has the day range, open, previous close, 52-week range, volume (when the data has it), a candle or line chart with 1M / 3M / 1Y / All, returns per range, volatility, max drawdown, best and worst day, and a paged daily OHLC table. A banner shows the source, the last date, the data's age and "Paper only. Not financial advice." | Stage 0, this branch |
-| **Proposals and log** | Every LLM proposal next to the gate's verdict and the reason, and the audit chain status. Read-only. | Stage 0, second part (shadow gate) |
+| **Proposals and log** | Every order intent from the trading agents, which agent sent it, the gate's verdict and the reason, and the audit chain status. Read-only. | Stage 0, second part (shadow gate) |
 | **Paper portfolio** | Paper cash, positions, fills, the day's P&L and the equity curve, from the Alpaca paper account or the simulator. | Stage 1 |
 | **Risk and limits** | Current limits beside `HARD_LIMITS`. Tightening takes effect at once. Loosening waits for the next trading day and breaks the discipline streak (as `engine.setLimits` does today). Shows automatic halts. | Stage 1 |
 | **Settings** | Watchlist (paste or Finviz CSV export), data source, sign-in and devices, and the secret-store status (whether a key is set, never its value). | Stage 0 for the watchlist; the rest later |
@@ -39,7 +43,7 @@ repeats the notice. The stage badge always shows the stage, so "read-only" or "p
  Owner's watchlist ────────▶ data/watchlist.json ──┤
  (paste / Finviz CSV)                              │
                                                    └──▶ Trader + RiskGuard ──▶ broker (sim / Alpaca paper)
- Local LLM (Frost AI) ─────▶ proposals (JSON) ─────────▶ gate (deterministic) ──▶ verdict + audit log ──▶ Proposals and log
+ Trading agents (sandboxed) ▶ order intents ───────────▶ gate (deterministic) ──▶ verdict + audit log ──▶ Proposals and log
                                                           approve / reject                              Paper portfolio
 ```
 
@@ -50,31 +54,35 @@ repeats the notice. The stage badge always shows the stage, so "read-only" or "p
   `indexes.mjs` reads the HF file (day-first dates, every index in one file). `csv.mjs` reads one file
   per symbol. They are kept separate on purpose: see §5.
 - **Engine and gate**: the same `Trader` and `RiskGuard` run the backtest, the simulator and paper
-  trading. Proposals from the LLM pass the gate (DESIGN-llm-automation §5) before anything reaches a
-  broker.
+  trading. Order intents from the agents pass the gate (DESIGN-llm-automation §5) before anything
+  reaches a broker. How the agents are built and kept apart is described in DESIGN-autonomous-agents.md.
 - **UI** reads only through the server's API. In stage 0 the server (`server/index.mjs`) exposes only
   the read-only `/api/numbers` routes. It listens on 127.0.0.1 and constructs no broker.
 
-## 3. Where the local LLM sits
+## 3. Where the agents and the gate sit
 
-The local model (Frost AI on the owner's PC) **only proposes**. It gets the numbers the app already
-has and returns a JSON proposal, for example "buy 3 AAPL, limit 190, because…". It has no keys, no
-broker client and no write access to limits, the watchlist or the mode.
+This section is only a pointer. The agent architecture (how many agents, their sandboxes, and what
+each one may do) is in [DESIGN-autonomous-agents.md](./DESIGN-autonomous-agents.md).
 
-A **deterministic gate** (plain code, extending `risk.mjs`) approves or rejects every proposal against
-the limits, the allow-list, market hours, data freshness, duplicates and rate. The gate's verdict and
-reason are logged whether it approves or rejects. If the model is down, slow or writes nonsense, the
-gate rejects and nothing happens. The owner holds the kill switch and every limit. The full design is
-in [DESIGN-llm-automation.md](./DESIGN-llm-automation.md) §4–§6.
+What the screens assume from it:
 
-On the Stock numbers screen the model plays no part. The numbers there are computed by code from the
-data and are descriptive only.
+- No agent reaches a broker directly. Every order intent passes a **deterministic gate** (plain code
+  that extends `risk.mjs`). The gate's verdict and reason go into the audit log.
+- **Proposals and log** reads that log.
+- **Risk and limits** and the **Kill switch** act on the gate and the brokers, never through an agent.
+  The owner holds the kill switch and every limit.
+
+No agent plays any part in the Stock numbers screen. The numbers there are computed by code from the
+data, and they only describe the past.
 
 ## 4. Stages
 
+This summary is taken from DESIGN-llm-automation §11. If DESIGN-autonomous-agents.md changes the
+stages for autonomous agents, that file wins.
+
 | Stage | What runs | Orders | Leaves the stage when |
 |---|---|---|---|
-| **0: read-only** | Stock numbers on the historical dataset (this branch). Then the watchlist, Alpaca *market data*, LLM proposals and the gate in shadow mode (it records what it *would* decide). | None. No order endpoint is constructed. | DESIGN-llm-automation §11 exit criteria, and the owner's go-ahead |
+| **0: read-only** | Stock numbers on the historical dataset (this branch). Then the watchlist, Alpaca *market data*, agent order intents and the gate in shadow mode (it records what it *would* decide). | None. No order endpoint is constructed. | DESIGN-llm-automation §11 exit criteria, and the owner's go-ahead |
 | **1: paper** | Alpaca paper account, current gate checks on, default limits, kill switch live. | Paper only | §11 criteria, and the owner's go-ahead |
 | **2: paper, full gate** | All gate checks, automatic halts, daily report, comparison with rule-only and buy-and-hold. | Paper only | `minPaperDays` and the §11 criteria. A profit is never the criterion. |
 | **3: live, tiny limits** | Only on the owner's explicit say-so, with very small caps. Paper keeps running alongside. | Live, tiny | Each raise is a separate owner action |
