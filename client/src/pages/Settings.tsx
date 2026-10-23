@@ -133,6 +133,11 @@ function FinvizCard() {
         ) : (
           <p className="muted">No watchlist yet.</p>
         )}
+        {st.mirror && (
+          <p className={st.mirror.status === 'ok' ? 'muted' : 'notice'}>
+            ticker app ({st.mirror.file}): {st.mirror.status === 'ok' ? `mirrored ${st.mirror.symbols} symbols and ${st.mirror.lots} paper positions${st.mirror.at ? `, last written ${when(st.mirror.at)}` : ''}. Restart ticker to see changes.` : st.mirror.error || 'not written yet.'}
+          </p>
+        )}
         <p className="muted">{st.inWindow ? 'Inside the fetch window now.' : 'Outside the fetch window now, so no scheduled fetches.'}</p>
       </div>
     </section>

@@ -174,8 +174,8 @@ const EMPTY_SETTINGS = { urls: [], intervalMin: DEFAULT_INTERVAL_MIN };
  * in DATA_DIR/finviz-token.json, the list in DATA_DIR/watchlist.json.
  */
 export class FinvizSource {
-  constructor({ dataDir, fetchImpl = (...a) => globalThis.fetch(...a), now = Date.now, sleep = defaultSleep, limiter, hosts = FINVIZ_HOSTS, log = console } = {}) {
-    Object.assign(this, { dataDir, fetchImpl, now, sleep, hosts, log });
+  constructor({ dataDir, fetchImpl = (...a) => globalThis.fetch(...a), now = Date.now, sleep = defaultSleep, limiter, hosts = FINVIZ_HOSTS, log = console, onChange = () => {} } = {}) {
+    Object.assign(this, { dataDir, fetchImpl, now, sleep, hosts, log, onChange });
     this.limiter = limiter || new RateLimiter({ now, sleep });
     this.files = {
       settings: path.join(dataDir, 'finviz.json'),
@@ -269,6 +269,7 @@ export class FinvizSource {
       this.last = { at, ok: false, error, reason, perUrl };
       this.log.warn?.(`Finviz refresh failed: ${error}`);
     }
+    this.onChange();
     return this.status();
   }
 
@@ -285,9 +286,14 @@ export class FinvizSource {
       inWindow: inFetchWindow(t),
       window: 'Weekdays 09:00–16:15 New York time',
       last: this.last,
-      list: this.list ? { ...this.list, ageMin: Math.floor((t - this.list.at) / 60_000), stale: !this.last?.ok && !!this.last } : null,
+      list: this.listInfo(),
       note,
     };
+  }
+
+  /** The last good list with its age, and whether the latest fetch failed. */
+  listInfo() {
+    return this.list ? { ...this.list, ageMin: Math.floor((this.now() - this.list.at) / 60_000), stale: !this.last?.ok && !!this.last } : null;
   }
 
   /** The symbols the engine and agents use. Empty until the first good fetch. */

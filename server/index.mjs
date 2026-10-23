@@ -15,6 +15,7 @@ import { HttpError } from './store.mjs';
 import { createNumbersApi } from './numbers-api.mjs';
 import { createFinvizApi } from './finviz-api.mjs';
 import { FinvizSource } from './engine/finviz.mjs';
+import { TickerMirror } from './engine/ticker-mirror.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(root, 'data'));
@@ -25,8 +26,12 @@ const HOST = '127.0.0.1';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
 
 // The owner's Finviz Elite screeners: the only outside call stage 0 makes (names only, no orders).
-const finvizSource = new FinvizSource({ dataDir: DATA_DIR }).start();
-const finviz = createFinvizApi({ source: finvizSource });
+// Mirror the watchlist and paper positions into ~/.ticker.yaml for the `ticker` app (TICKER_MIRROR=0: off).
+let mirror = null;
+const finvizSource = new FinvizSource({ dataDir: DATA_DIR, onChange: () => mirror?.sync() });
+if (process.env.TICKER_MIRROR !== '0') mirror = new TickerMirror({ dataDir: DATA_DIR, list: () => finvizSource.listInfo() }).start();
+finvizSource.start();
+const finviz = createFinvizApi({ source: finvizSource, mirror });
 const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => finvizSource.status() });
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {

@@ -173,6 +173,7 @@ used here as a reference only.
 | `server/engine/numbers.mjs` | `quote`, `sliceRange`, `compress`, `seriesStats` (built on `stats.mjs`), `historyPage` |
 | `server/engine/watchlist-input.mjs` | `parseTickers()`: a paste or Finviz CSV export, checked against `STOCK`, at most 40. Not stored. |
 | `server/engine/finviz.mjs` | Finviz Elite screener source: export URLs, rate limit, backoff, redaction, last good list in `DATA_DIR/watchlist.json`. |
+| `server/engine/ticker-mirror.mjs` | Read-only mirror of the watchlist and paper positions into `~/.ticker.yaml` for the `ticker` app. Rewrites only its marked block; a file it did not write is backed up once and left alone. `TICKER_MIRROR=0` turns it off. |
 | `server/numbers-api.mjs` | Read-only `/api/numbers` routes, as plain functions for tests |
 | `server/index.mjs` | HTTP server on 127.0.0.1: serves `client/dist` and `/api/numbers`. No engine or broker. |
 | `server/engine/backtest.mjs` | `indexStudy()`, the daily study for the harness |

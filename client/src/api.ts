@@ -86,6 +86,7 @@ export type FinvizStatus = {
   last: FinvizFetch | null;
   list: { source: 'finviz'; at: number; symbols: string[]; rows: number; dropped: number; rejected: string[]; ageMin: number; stale: boolean } | null;
   note: string | null;
+  mirror: { file: string; status: 'idle' | 'ok' | 'foreign' | 'error'; at: number | null; error: string | null; symbols: number; lots: number } | null;
 };
 
 export type FinvizUpdate = { urls?: string[]; intervalMin?: number; token?: string; clearToken?: boolean };
