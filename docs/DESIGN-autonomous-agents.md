@@ -553,7 +553,9 @@ None of these needs him per trade.
 Not built: agent child processes, IPC, the gate's check 17 inside `risk.mjs`, live sub-ledgers,
 research loop, API and connector. No broker file was changed.
 
-Run: `node --test server/engine/agents/` (Node 24).
+Run: `node --test server/engine/agents/*.test.mjs` (Node 24): 13 tests. They use temp folders only,
+no network and no keys. (The older `sim.test.mjs` and `backtest.test.mjs` fail to import in a clean
+checkout because `server/engine/data/` is git-ignored, LLM note §1.1; the new tests don't depend on it.)
 
 ---
 
