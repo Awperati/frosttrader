@@ -5,6 +5,7 @@ import { SimBroker } from './broker/sim.mjs';
 import { Trader } from './strategy.mjs';
 import { SIGNALS, backtestSignal } from './signals/index.mjs';
 import { maxDrawdown, sharpe, mean } from './stats.mjs';
+import { seriesStats, sliceRange } from './numbers.mjs';
 
 /** Pair buy and sell fills into round trips (first in, first out per symbol). */
 export function roundTrips(fills) {
@@ -99,4 +100,28 @@ function countBy(xs, key) {
   const out = {};
   for (const x of xs) out[key(x)] = (out[key(x)] || 0) + 1;
   return out;
+}
+
+/**
+ * A daily-level study of whole series, for data the intraday Trader cannot trade (the index
+ * dataset: one bar a day, and indices are not stocks). It replays nothing and places nothing:
+ * per symbol it reports what holding the series did over the bars given (return, volatility,
+ * max drawdown, best and worst day), next to the average across symbols. Past only.
+ */
+export function indexStudy(barsBySymbol, { range = 'All' } = {}) {
+  const rows = [];
+  for (const [symbol, all] of Object.entries(barsBySymbol)) {
+    const s = seriesStats(sliceRange(all, range));
+    if (s) rows.push({ symbol, ...s });
+  }
+  rows.sort((a, b) => (a.symbol < b.symbol ? -1 : 1));
+  const avg = (k) => mean(rows.map((r) => r[k]));
+  return {
+    range,
+    symbols: rows.length,
+    from: rows.length ? Math.min(...rows.map((r) => r.from)) : null,
+    to: rows.length ? Math.max(...rows.map((r) => r.to)) : null,
+    average: rows.length ? { returnPct: avg('returnPct'), volatilityPct: avg('volatilityPct'), maxDrawdownPct: avg('maxDrawdownPct') } : null,
+    rows,
+  };
 }
