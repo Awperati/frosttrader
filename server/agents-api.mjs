@@ -9,6 +9,9 @@
 //   GET  /api/agents/summary       ?day=                          the day's summary per agent and for all
 //   GET  /api/agents/stats         ?agent=&days=30                by signal, symbol, half hour, exit reason
 //   GET  /api/agents/export        ?what=trades|decisions|days&format=csv|json&from=&to=   a download
+//   GET  /api/research             the nightly research: last run, each agent's result, history
+//   POST /api/research/run         run it now (on the bars already stored and any new ones)
+//   POST /api/research/rollback    { agent }   back to the settings before its latest promotion
 //   GET  /api/alpaca               whether paper keys are saved, the last test. Never a key.
 //   PUT  /api/alpaca               { keyId, secret } or { clear: true }   write-only
 //   POST /api/alpaca/test          fetch SPY's latest bar once
@@ -36,7 +39,7 @@ function daysBetween(from, to) {
   return out;
 }
 
-export function createAgentsApi({ host, keys, now = Date.now }) {
+export function createAgentsApi({ host, keys, research = null, now = Date.now }) {
   const today = () => nyClock(now()).day;
   const dayParam = (q, name, fallback) => {
     const v = q.get(name);
@@ -106,6 +109,18 @@ export function createAgentsApi({ host, keys, now = Date.now }) {
           const csvRows = rows.map((r) => ({ ...r, t: iso(r.t), entryT: iso(r.entryT), exitT: iso(r.exitT) }));
           return { status: 200, body: format === 'json' ? JSON.stringify(rows, null, 1) : toCsv(csvRows, columns), type: format === 'json' ? 'application/json; charset=utf-8' : 'text/csv; charset=utf-8', download: name };
         }
+        case 'GET /api/research':
+          if (!research) throw new HttpError(404, 'Not found');
+          return { status: 200, body: research.status() };
+        case 'POST /api/research/run':
+          local();
+          if (!research) throw new HttpError(404, 'Not found');
+          return { status: 200, body: await research.run(today(), host.getUniverse()) };
+        case 'POST /api/research/rollback':
+          local();
+          if (!research) throw new HttpError(404, 'Not found');
+          if (!AGENT_IDS.includes(body?.agent)) throw new HttpError(400, 'Unknown agent');
+          return { status: 200, body: bad(() => research.rollback(body.agent)) };
         case 'GET /api/alpaca':
           return { status: 200, body: keys.status() };
         case 'PUT /api/alpaca':

@@ -22,6 +22,7 @@ import { AgentHost } from './engine/agents/host.mjs';
 import { AlpacaKeys } from './alpaca-keys.mjs';
 import { createAgentsApi } from './agents-api.mjs';
 import { FxRate } from './engine/data/fx.mjs';
+import { Research } from './engine/research/nightly.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(root, 'data'));
@@ -44,7 +45,10 @@ const alpacaKeys = new AlpacaKeys({ dataDir: DATA_DIR });
 const fx = new FxRate({ dataDir: DATA_DIR });
 const host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getFx: () => fx.current(), refreshFx: () => fx.refresh() });
 if (process.env.AGENTS !== '0') host.start();
-const agents = createAgentsApi({ host, keys: alpacaKeys });
+// the nightly research loop: after each close, walk-forward of every agent's settings (paper only)
+const research = new Research({ dataDir: DATA_DIR, host, getData: () => alpacaKeys.client() });
+host.onDayEnd = (day) => research.run(day, finvizSource.symbols());
+const agents = createAgentsApi({ host, keys: alpacaKeys, research });
 const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => ({ ...finvizSource.status(), holders: host.holders() }) });
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
@@ -96,7 +100,7 @@ const server = http.createServer(async (req, res) => {
       const out = await finviz.handle(req.method, url.pathname, req.headers, body);
       return send(res, out.status, out.body);
     }
-    if (/^\/api\/(agents|alpaca)(\/|$)/.test(url.pathname)) {
+    if (/^\/api\/(agents|alpaca|research)(\/|$)/.test(url.pathname)) {
       const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 32 * 1024) : null;
       const out = await agents.handle(req.method, url.pathname, req.headers, body, url.searchParams);
       if (out.download) {

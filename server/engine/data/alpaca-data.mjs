@@ -18,6 +18,7 @@ export class AlpacaData {
     this.headers = { 'APCA-API-KEY-ID': keyId, 'APCA-API-SECRET-KEY': secret, accept: 'application/json' };
     this.secrets = [keyId, secret];
     Object.assign(this, { feed, fetchImpl, base, sleep, timeoutMs });
+    this.requests = 0; // every HTTP request made, for the nightly report
   }
 
   /** Any text with the keys taken out. */
@@ -31,6 +32,7 @@ export class AlpacaData {
     let last = null;
     for (let attempt = 0; attempt < RETRY.tries; attempt++) {
       let res;
+      this.requests++;
       try {
         res = await this.fetchImpl(this.base + pathAndQuery, { headers: this.headers, redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs) });
       } catch (e) {

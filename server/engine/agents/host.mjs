@@ -79,8 +79,8 @@ export class AgentHost {
    * getFx(): today's AUD → USD rate { rate, date, source } (data/fx.mjs), or null; refreshFx() updates it.
    * spawn(id): a child process (tests can pass a fake).
    */
-  constructor({ dataDir, getUniverse = () => [], getData = () => null, getFx = () => null, refreshFx = async () => {}, now = Date.now, spawn = spawnAgent, log = console }) {
-    Object.assign(this, { dataDir, getUniverse, getData, getFx, refreshFx, now, spawn, log });
+  constructor({ dataDir, getUniverse = () => [], getData = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, log = console }) {
+    Object.assign(this, { dataDir, getUniverse, getData, getFx, refreshFx, onDayEnd, now, spawn, log });
     this.settingsFile = path.join(dataDir, 'agents-settings.json');
     this.stateFile = path.join(dataDir, 'agents-host.json');
     this.killFile = path.join(dataDir, 'KILL');
@@ -404,6 +404,12 @@ export class AgentHost {
     }
     this.audit.write({ type: 'day-end', day });
     this.journal.prune(AGENT_IDS);
+    // the nightly research run (server/engine/research/nightly.mjs), after the books are closed
+    try {
+      void this.onDayEnd(day);
+    } catch (e) {
+      this.log.warn?.(`research: ${e.message}`);
+    }
   }
 
   /** One pass. Returns status(). Never throws. */
