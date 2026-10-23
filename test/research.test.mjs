@@ -90,6 +90,7 @@ test('promotion rules, fixed in code', () => {
   assert.match(decide({ ...base, picks: [1, 1], tests: [r(0, 40), r(1, 20)] }).reason, /20 test trades/);
   assert.match(decide({ ...base, picks: [1, 1], tests: [r(0.1, 40), r(0.15, 40)] }).reason, /needs US\$0\.10/);
   assert.match(decide({ ...base, picks: [1, 1], tests: [r(0, 40, 1), r(1, 40, 2)] }).reason, /bigger drawdown/);
+  assert.match(decide({ ...base, picks: [1, 1], tests: [r(-0.55, 40), r(-0.41, 40)] }).reason, /lost money on the test days/, 'a variant that only loses less is kept out');
   assert.match(decide({ ...base, picks: [1, 1], tests: [r(0, 40, 1, 0.4), r(1, 40, 1, 0.1)] }).reason, /most recent window/);
   assert.match(decide({ ...base, lastChangeDay: '2026-10-16', picks: [1, 1], tests: [r(0.1, 40), r(0.5, 40)] }).reason, /at most one change every 7 days/);
   assert.equal(decide({ ...base, lastChangeDay: '2026-10-14', picks: [1, 1], tests: [r(0.1, 40), r(0.5, 40)] }).promote, 1);

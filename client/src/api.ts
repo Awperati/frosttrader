@@ -142,6 +142,25 @@ export type DaySummary = { day: string; agents: (Tally & { agent: string; halts:
 export type Group = Tally & { key: string };
 export type AgentStats = { from: string; agent: string | null; all: Tally; bySignal: Group[]; bySymbol: Group[]; byTime: Group[]; byExit: Group[] };
 
+export type Combined = { n: number; pnl: number; expectancy: number; maxDrawdown: number; maxDrawdownPct: number; last: number };
+export type WindowResult = { fit: [string, string]; test: [string, string]; pick: number; pickParams: AgentParams; current: { pnl: number; n: number; maxDrawdown: number }; picked: { pnl: number; n: number; maxDrawdown: number } };
+export type ResearchAgent = {
+  id: string;
+  params: AgentParams;
+  lastChangeDay: string | null;
+  candidates: { params: AgentParams; from: string; day: string }[];
+  lastResult: { day: string; candidates: number; windows: number; decision: string; promotedOk: boolean; current: Combined; best: Combined | null; bestParams: AgentParams | null; promoted: AgentParams | null; perWindow: WindowResult[]; adoptedCandidates: number } | null;
+  nights: { day: string; decision: string; promoted: boolean; current: Combined; best: Combined | null }[];
+};
+export type ResearchStatus = {
+  rules: Record<string, number>;
+  lastRun: { day: string; at: number; ok: boolean; ms?: number; requests?: number; newBars?: number; symbols?: number; days?: number; windows?: number; note?: string; error?: string } | null;
+  running: boolean;
+  agents: ResearchAgent[];
+  history: { at: string; day?: string; agent: string; kind: 'promote' | 'rollback'; from: AgentParams; to: AgentParams; reason?: string; rolledBack?: boolean }[];
+  adoptions: { at: string; type: 'validation' | 'adoption'; agent: string; finding: string; pass: boolean | null; reasons: string[] }[];
+};
+
 export type AlpacaStatus = { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null; use: string };
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -169,6 +188,9 @@ export const api = {
   summary: (day: string) => call<DaySummary>(`/api/agents/summary?day=${day}`),
   stats: (agent = '', days = 30) => call<AgentStats>(`/api/agents/stats?${new URLSearchParams({ days: String(days), ...(agent ? { agent } : {}) })}`),
   exportUrl: (what: 'trades' | 'decisions' | 'days', format: 'csv' | 'json', from: string, to: string) => `/api/agents/export?${new URLSearchParams({ what, format, from, to })}`,
+  research: () => call<ResearchStatus>('/api/research'),
+  runResearch: () => call<unknown>('/api/research/run', json('POST', {})),
+  rollback: (agent: string) => call<ResearchStatus>('/api/research/rollback', json('POST', { agent })),
   alpaca: () => call<AlpacaStatus>('/api/alpaca'),
   saveAlpaca: (u: { keyId?: string; secret?: string; clear?: boolean }) => call<AlpacaStatus>('/api/alpaca', json('PUT', u)),
   testAlpaca: () => call<AlpacaStatus>('/api/alpaca/test', json('POST', {})),

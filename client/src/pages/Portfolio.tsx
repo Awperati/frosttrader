@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type AgentsStatus, type AgentView } from '../api';
 import { num, signed, tone } from '../format';
 import { DaySummaryCard, DecisionLog, ExportLinks, StatsView, nyToday } from './AgentInsight';
+import { ResearchView } from './Research';
 
 // Paper portfolio: one card per paper agent (server/engine/agents/host.mjs), the kill switch state and
 // the latest audit events. Paper money only; live trading is closed.
@@ -14,7 +15,7 @@ export function Portfolio() {
   const [st, setSt] = useState<AgentsStatus | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<'overview' | 'log' | 'stats' | 'export'>('overview');
+  const [view, setView] = useState<'overview' | 'log' | 'stats' | 'research' | 'export'>('overview');
   const [day, setDay] = useState(nyToday());
 
   useEffect(() => {
@@ -71,6 +72,7 @@ export function Portfolio() {
               ['overview', 'Overview'],
               ['log', 'Decision log'],
               ['stats', 'Stats'],
+              ['research', 'Research'],
               ['export', 'Export'],
             ] as const
           ).map(([id, label]) => (
@@ -93,6 +95,7 @@ export function Portfolio() {
         </div>
       )}
       {view === 'stats' && <StatsView />}
+      {view === 'research' && <ResearchView />}
       {view === 'export' && (
         <div className="panel">
           <h3>Export</h3>

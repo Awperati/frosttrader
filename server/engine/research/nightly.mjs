@@ -9,7 +9,7 @@
 //      only on the TEST days that follow;
 //   3. promotion, by rules fixed in code (nobody votes, the model included): a variant replaces the
 //      agent's parameters only if it was picked in every window, made at least MIN_TRADES trades on
-//      the test days, beat the current parameters there by at least 1 % of the agent's money, had no
+//      the test days, made money there, beat the current parameters by at least 1 % of the agent's money, had no
 //      bigger drawdown, and did no worse in the most recent window; and the agent's parameters have
 //      not changed in the last 7 days.
 //
@@ -111,6 +111,7 @@ export function decide({ picks, tests, allocation, lastChangeDay, today, rules =
   if (chosen === 0) return keep('the current settings won on the fit days');
   const best = combine(tests[chosen]);
   if (best.n < rules.minTrades) return keep(`the best variant made ${best.n} test trades (needs ${rules.minTrades})`, best);
+  if (best.pnl <= 0) return keep(`the best variant lost money on the test days (US${best.pnl.toFixed(2)}); losing less is not enough`, best);
   if (best.pnl - cur.pnl < allocation * rules.marginShare) return keep(`the best variant beat the current settings by US$${(best.pnl - cur.pnl).toFixed(2)} on the test days (needs US$${(allocation * rules.marginShare).toFixed(2)})`, best);
   if (best.maxDrawdown > cur.maxDrawdown + 1e-9) return keep('the best variant had a bigger drawdown', best);
   if (best.last < cur.last) return keep('the best variant did worse in the most recent window', best);
@@ -131,7 +132,9 @@ export class Research {
   }
 
   agentState(id) {
-    return (this.state.agents[id] ??= { lastChangeDay: null, candidates: [], lastResult: null });
+    const a = (this.state.agents[id] ??= { lastChangeDay: null, candidates: [], lastResult: null });
+    a.nights ??= []; // the last 30 nights' results, newest first
+    return a;
   }
 
   save() {
@@ -185,9 +188,28 @@ export class Research {
       const candidates = [current, ...variants(current, this.rules.variants, hashSeed(`${day}|${id}|${n}`)), ...adopted.map((c) => c.params)];
       const wf = wins.length ? walkForward({ bars, cache, candidates, preset, allocation, wins }) : { picks: [], tests: candidates.map(() => []) };
       const d = decide({ ...wf, allocation, lastChangeDay: a.lastChangeDay, today: day, rules: this.rules });
-      results[id] = { candidates: candidates.length, windows: wins.length, decision: d.reason, current: d.current, best: d.best, promoted: d.promote != null ? candidates[d.promote] : null };
+      const brief = (r) => ({ pnl: r.pnl, n: r.n, maxDrawdown: r.maxDrawdown });
+      const chosen = wf.picks.length ? mostCommon(wf.picks) : 0;
+      const perWindow = wins.map((w, k) => {
+        const fit = [...w.fit];
+        const test = [...w.test];
+        return { fit: [fit[0], fit.at(-1)], test: [test[0], test.at(-1)], pick: wf.picks[k], pickParams: candidates[wf.picks[k]], current: brief(wf.tests[0][k]), picked: brief(wf.tests[wf.picks[k]][k]) };
+      });
+      results[id] = {
+        candidates: candidates.length,
+        windows: wins.length,
+        decision: d.reason,
+        promotedOk: d.promote != null,
+        current: d.current,
+        best: d.best,
+        bestParams: chosen ? candidates[chosen] : null,
+        promoted: d.promote != null ? candidates[d.promote] : null,
+        perWindow,
+        adoptedCandidates: adopted.length,
+      };
       if (d.promote != null) this.promote(id, current, candidates[d.promote], d, day);
       a.lastResult = { day, ...results[id] };
+      a.nights = [{ day, decision: d.reason, promoted: d.promote != null, current: d.current, best: d.best }, ...a.nights.filter((x) => x.day !== day)].slice(0, 30);
       a.candidates = adopted.filter((c) => key(c.params) !== key(candidates[d.promote ?? 0])).slice(-5);
     }
     if (wins.length) this.validateFindings(bars, cache, wins, day);
@@ -264,8 +286,15 @@ export class Research {
       running: !!this.running,
       agents: AGENT_IDS.map((id) => ({ id, params: this.host.settings.params[id], ...this.agentState(id) })),
       history: this.history(30),
+      adoptions: this.host.knowledge.lines.filter((l) => l.type === 'validation' || l.type === 'adoption').slice(-40).reverse().map((l) => ({ at: l.at, type: l.type, agent: l.agentId, finding: l.findingId, pass: l.pass ?? null, reasons: l.reasons ?? [], result: l.result ?? null })),
     };
   }
+}
+
+function mostCommon(list) {
+  const n = new Map();
+  for (const x of list) n.set(x, (n.get(x) ?? 0) + 1);
+  return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
 }
 
 function hashSeed(s) {
