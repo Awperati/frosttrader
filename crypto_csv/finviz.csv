@@ -1,0 +1,39 @@
+"No.","Ticker","Company","Sector","Industry","Country","Market Cap","P/E","Price","Change","Volume"
+1,"FFIV","F5 Inc","Technology","Software - Infrastructure","USA",25486.76,35.85,450.08,-1.86%,494106
+2,"ZBRA","Zebra Technologies Corp","Technology","Communication Equipment","USA",18174.86,35.15,384.16,-1.75%,589161
+3,"MPWR","Monolithic Power System Inc","Technology","Semiconductors","USA",57395.59,71.57,1167.93,-8.99%,1480247
+4,"ROP","Roper Technologies Inc","Technology","Software - Application","USA",43143.53,17.22,436.23,9.73%,1977042
+5,"VRSN","Verisign Inc","Technology","Software - Infrastructure","USA",27504.48,33.06,304.59,-0.87%,1314137
+6,"JKHY","Jack Henry & Associates Inc","Technology","Information Technology Services","USA",11344.12,23.20,161.80,5.47%,848674
+7,"CDW","CDW Corp","Technology","Information Technology Services","USA",20580.37,19.79,164.62,4.01%,1952433
+8,"ADSK","Autodesk Inc","Technology","Software - Application","USA",53284.55,33.03,254.95,4.13%,2164781
+9,"SNPS","Synopsys Inc","Technology","Software - Infrastructure","USA",80962.65,74.64,422.48,-6.36%,2588513
+10,"ADP","Automatic Data Processing Inc","Technology","Software - Application","USA",122021.70,28.14,307.94,4.56%,3271011
+11,"FSLR","First Solar Inc","Technology","Solar","USA",18404.20,10.56,171.25,-2.04%,2402636
+12,"CDNS","Cadence Design Systems Inc","Technology","Software - Application","USA",85275.45,61.61,309.65,-5.04%,2893469
+13,"PTC","PTC Inc","Technology","Software - Application","USA",21074.65,18.75,194.00,-0.20%,2554986
+14,"NTAP","Netapp Inc","Technology","Software - Infrastructure","USA",41741.00,29.99,212.51,-2.16%,1641796
+15,"TRMB","Trimble Inc","Technology","Scientific & Technical Instruments","USA",14925.84,,64.01,2.27%,2097919
+16,"TER","Teradyne Inc","Technology","Semiconductor Equipment & Materials","USA",48270.20,42.36,308.75,-10.63%,5873513
+17,"PAYX","Paychex Inc","Technology","Software - Application","USA",42294.04,23.60,118.81,5.61%,3294249
+18,"ADI","Analog Devices Inc","Technology","Semiconductors","USA",186925.98,45.78,385.76,-4.98%,6585146
+19,"WDAY","Workday Inc","Technology","Software - Application","USA",50607.59,42.62,209.99,3.46%,2918964
+20,"INTU","Intuit Inc","Technology","Software - Application","USA",94842.05,21.51,354.90,5.75%,4816438
+21,"DDOG","Datadog Inc","Technology","Software - Application","USA",92551.59,526.56,257.75,-5.62%,3811503
+22,"FLEX","Flex Ltd","Technology","Electronic Components","USA",28333.92,29.61,76.69,-11.08%,11006683
+23,"FTNT","Fortinet Inc","Technology","Software - Infrastructure","USA",126917.78,60.95,172.98,-0.61%,3961574
+24,"AKAM","Akamai Technologies Inc","Technology","Software - Infrastructure","USA",13096.89,32.87,91.13,0.95%,5123684
+25,"STX","Seagate Technology Holdings Plc","Technology","Computer Hardware","USA",146018.16,46.28,642.14,-7.86%,5785018
+26,"LITE","Lumentum Holdings Inc","Technology","Communication Equipment","USA",68167.22,,752.54,-11.54%,6157019
+27,"ADBE","Adobe Inc","Technology","Software - Application","USA",105298.05,15.09,270.55,6.07%,6850816
+28,"PANW","Palo Alto Networks Inc","Technology","Software - Infrastructure","USA",290324.56,692.53,354.92,2.21%,7317724
+29,"TXN","Texas Instruments Inc","Technology","Semiconductors","USA",255252.73,36.26,279.50,-1.81%,13872245
+30,"SWKS","Skyworks Solutions Inc","Technology","Semiconductors","USA",19375.29,42.68,82.39,0.21%,3516473
+31,"FISV","Fiserv Inc","Technology","Information Technology Services","USA",27024.38,9.75,50.82,5.41%,6672421
+32,"AMAT","Applied Materials Inc","Technology","Semiconductor Equipment & Materials","USA",298059.34,32.39,375.58,-8.16%,13020311
+33,"CTSH","Cognizant Technology Solutions Corp","Technology","Information Technology Services","USA",33206.75,15.82,73.72,6.00%,9931856
+34,"WDC","Western Digital Corp","Technology","Computer Hardware","USA",132581.56,13.76,354.19,-6.43%,13556843
+35,"GEN","Gen Digital Inc","Technology","Software - Infrastructure","USA",14898.83,14.45,24.89,3.19%,7276160
+36,"LRCX","Lam Research Corp","Technology","Semiconductor Equipment & Materials","USA",288015.31,34.26,230.15,-11.76%,22996442
+37,"CRWD","Crowdstrike Holdings Inc","Technology","Software - Infrastructure","USA",243635.05,6664.99,237.94,-0.58%,10108563
+38,"MCHP","Microchip Technology Inc","Technology","Semiconductors","USA",40465.00,111.41,74.52,-3.41%,17071804
