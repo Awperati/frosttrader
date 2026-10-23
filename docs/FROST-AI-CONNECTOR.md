@@ -4,7 +4,7 @@ Frost AI can read how the paper agents are doing, and stop, start or kill them, 
 MCP server at `http://127.0.0.1:8787/mcp`. Paper only. It can't resume after a kill, or change
 settings, money or live.
 
-Checked against Frost AI's code (frostmind `origin/main`, MCP key field from ecc1fc4):
+Checked against Frost AI's code, and confirmed by Builder 3 (frostmind `origin/main`, MCP key field from ecc1fc4):
 - an `mcp.json` entry with a `url` is started as Streamable HTTP (`electron/lib/mcp.cjs`, `type`
   defaults to `http` when `url` is set); plain `http://127.0.0.1` is fine;
 - for an HTTP server the key field defaults to `Authorization`, and the key is sent as
@@ -22,16 +22,17 @@ Checked against Frost AI's code (frostmind `origin/main`, MCP key field from ecc
 
    ```json
    "frosttrader": {
+     "type": "http",
      "url": "http://127.0.0.1:8787/mcp",
      "autoApprove": ["frosttrader_status", "frosttrader_today", "frosttrader_stats", "frosttrader_decisions", "frosttrader_research"]
    }
    ```
 
    `autoApprove` lets the five read tools run without asking; stop, start and kill still ask each time.
-3. Back in **Settings → MCP servers**, find **frosttrader**. Its key field says **Authorization**:
-   paste the token there and save (that restarts it). Make sure it is **On**. If it doesn't appear,
-   restart Frost AI once.
-4. Ask Frost AI: "How did the FrostTrader agents do today?" or "Show agent-b's decisions".
+3. Back in **Settings → MCP servers**, press **Restart all**, then find the **frosttrader** row. Its
+   key field name already says **Authorization**: paste the token and press **Save key** (that
+   restarts it). Make sure its switch is **On**.
+4. Ask Frost AI (the first use in a chat asks once to load the FrostTrader tools): "How did the FrostTrader agents do today?" or "Show agent-b's decisions".
 
 ## The tools
 
