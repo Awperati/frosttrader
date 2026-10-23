@@ -93,6 +93,8 @@ export class AgentHost {
     this.children = new Map(); // id -> { proc, waiting }
     this.timer = null;
     this.busy = null;
+    this.barCache = {}; // symbol -> recent 5-minute bars, oldest first
+    this.refusedAt = new Map();
   }
 
   // ── sandboxes ──────────────────────────────────────────────
@@ -440,7 +442,7 @@ export class AgentHost {
     }
     const before = this.reconcile();
     if (before) return this.integrityHalt(before);
-    const bars = await data.bars(symbols, { timeframe: '5Min', start: now - TIMING.historyMs });
+    const bars = await this.fetchBars(data, symbols, now);
     this.state.lastError = '';
     this.state.lastTick = now;
 
@@ -469,7 +471,7 @@ export class AgentHost {
       const sent = {};
       for (const s of universe) if (bars[s]?.length) sent[s] = bars[s].slice(-TIMING.barsPerSymbol);
       const answers = await Promise.all(
-        ids.map(async (id) => [id, await this.ask(id, { type: 'tick', t: now, params: this.settings.params[id], bars: sent, held: Object.keys(this.sandbox(id).broker.positions) })]),
+        ids.map(async (id) => [id, await this.ask(id, { type: 'tick', t: now, params: this.settings.params[id], bars: sent, held: Object.keys(this.holders()) })]),
       );
       for (const [id, items] of answers) {
         this.state.agents[id].lastProposals = items || [];
@@ -479,6 +481,29 @@ export class AgentHost {
 
     const problem = this.reconcile();
     if (problem) this.integrityHalt(problem);
+  }
+
+  /**
+   * Bars for the symbols: the first time 4 days of history, then only what is new (from 10 minutes
+   * before the newest bar held), merged by time and kept to the last 400 per symbol. Only finished
+   * bars are returned: a 5-minute bar is final once its start is 5 minutes in the past.
+   */
+  async fetchBars(data, symbols, now) {
+    const fresh = symbols.filter((s) => !this.barCache[s]?.length);
+    const known = symbols.filter((s) => this.barCache[s]?.length);
+    const got = {};
+    const add = (more) => {
+      for (const [s, list] of Object.entries(more || {})) (got[s] ||= []).push(...list);
+    };
+    if (fresh.length) add(await data.bars(fresh, { timeframe: '5Min', start: now - TIMING.historyMs }));
+    if (known.length) add(await data.bars(known, { timeframe: '5Min', start: Math.min(...known.map((s) => this.barCache[s].at(-1).t)) - 10 * 60_000 }));
+    for (const [s, list] of Object.entries(got)) {
+      const byT = new Map((this.barCache[s] || []).map((b) => [b.t, b]));
+      for (const b of list) byT.set(b.t, b);
+      this.barCache[s] = [...byT.values()].sort((a, b) => a.t - b.t).slice(-400);
+    }
+    for (const s of Object.keys(this.barCache)) if (!symbols.includes(s)) delete this.barCache[s];
+    return Object.fromEntries(symbols.map((s) => [s, (this.barCache[s] || []).filter((b) => b.t + 5 * 60_000 <= now)]));
   }
 
   manageExit(id, sb, symbol, list) {
@@ -524,6 +549,10 @@ export class AgentHost {
     const a = this.state.agents[id];
     const decide = (ok, reason, extra = {}) => {
       a.lastDecision = { at: this.now(), symbol: p.symbol, ok, reason };
+      // the same refusal for the same agent and symbol is written once every 30 minutes, not every tick
+      const key = `${id}|${p.symbol}|${reason}`;
+      if (!ok && this.now() - (this.refusedAt.get(key) ?? 0) < 30 * 60_000) return;
+      if (!ok) this.refusedAt.set(key, this.now());
       this.audit.write({ type: ok ? 'fill' : 'refused', agent: id, side: 'buy', symbol: p.symbol, signal: p.signal, score: p.score, reason, ...extra });
     };
     if (!sb || a.dayHalt || this.state.killed) return;

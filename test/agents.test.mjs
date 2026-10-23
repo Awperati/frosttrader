@@ -589,3 +589,23 @@ test('the old Alpaca paper adapter cannot send an order, and nothing the server 
   assert.ok(rel.includes('server/engine/agents/host.mjs'), 'the walk works');
   for (const bad of ['server/engine/broker/alpaca.mjs', 'server/engine/engine.mjs', 'server/engine/strategy.mjs']) assert.ok(!rel.includes(bad), `${bad} is reachable from the server`);
 });
+
+test('host: bars are fetched once in full, then only what is new; unfinished bars are left out', async () => {
+  const calls = [];
+  const dir = tmp();
+  let now = T0;
+  const data = {
+    bars: async (symbols, { start }) => {
+      calls.push({ symbols, start });
+      return Object.fromEntries(symbols.map((s) => [s, [...bars(now, 100, 40), { t: now - 2 * MIN, o: 100, h: 101, l: 99, c: 100, v: 5 }]]));
+    },
+  };
+  const host = new AgentHost({ dataDir: dir, getUniverse: () => ['AAPL'], getData: () => data, getFx: () => ({ rate: 1, date: '2026-10-21' }), now: () => now, spawn: fakeSpawn(() => []).spawn, log: { warn() {} } });
+  const first = await host.fetchBars(data, ['AAPL'], now);
+  assert.equal(calls[0].start, now - 4 * 86_400_000);
+  assert.ok(first.AAPL.every((b) => b.t + 5 * MIN <= now), 'the bar that started 2 minutes ago is not finished');
+  now += 5 * MIN;
+  await host.fetchBars(data, ['AAPL'], now);
+  assert.ok(calls[1].start > now - 3600_000, 'only the recent part');
+  host.stop();
+});
