@@ -42,7 +42,7 @@ export function cleanLimits(input = {}, base = DEFAULT_LIMITS) {
 /** True if b is no looser than a on every limit. */
 export const isTighter = (a, b) => Object.keys(DEFAULT_LIMITS).every((k) => b[k] <= a[k]);
 
-const STOCK = /^[A-Z]{1,5}([.-][A-Z])?$/; // AAPL, BRK.B. Options symbols (AAPL261218C00150000) and crypto pairs (BTC/USD) fail.
+export const STOCK = /^[A-Z]{1,5}([.-][A-Z])?$/; // AAPL, BRK.B. Options symbols (AAPL261218C00150000) and crypto pairs (BTC/USD) fail.
 
 export class RiskGuard {
   constructor(limits = DEFAULT_LIMITS) {
