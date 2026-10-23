@@ -23,6 +23,7 @@ import { BarStore } from './barstore.mjs';
 import { replay, signalCache } from './replay.mjs';
 import { PARAM_BOUNDS, AGENT_IDS } from '../agents/profile.mjs';
 import { rng } from '../stats.mjs';
+import { summarize } from './hypotheses.mjs';
 
 export const RULES = Object.freeze({
   fitDays: 10,
@@ -121,8 +122,9 @@ export function decide({ picks, tests, allocation, lastChangeDay, today, rules =
 
 export class Research {
   /** host: the AgentHost (settings, audit, journal, knowledge). getData(): Alpaca market data or null. */
-  constructor({ dataDir, host, getData = () => null, now = Date.now, rules = RULES, log = console }) {
-    Object.assign(this, { host, getData, now, rules, log });
+  /** ideas: a ModelIdeas (hypotheses.mjs), or null. It does nothing unless the owner switched it on. */
+  constructor({ dataDir, host, getData = () => null, ideas = null, now = Date.now, rules = RULES, log = console }) {
+    Object.assign(this, { host, getData, ideas, now, rules, log });
     this.dir = path.join(dataDir, 'research');
     this.stateFile = path.join(this.dir, 'state.json');
     this.historyFile = path.join(this.dir, 'history.jsonl');
@@ -180,12 +182,23 @@ export class Research {
     const cache = signalCache(bars);
     const preset = this.host.settings.preset;
     const results = {};
+    // the owner's local model, if he switched it on: up to 3 ideas, each just one more candidate
+    let model = { proposals: [], dropped: [] };
+    if (this.ideas?.settings.enabled) {
+      const stats = Object.fromEntries(AGENT_IDS.map((id) => [id, this.host.journal.stats(AGENT_IDS, { agent: id, days: 30 })]));
+      model = await this.ideas.propose(summarize({ agents: AGENT_IDS.map((id) => ({ id, params: this.host.settings.params[id], lastResult: this.agentState(id).lastResult })), stats }));
+      this.host.audit.write({ type: 'llm', day, proposals: model.proposals.length, dropped: model.dropped, error: model.error ?? null, promptHash: model.promptHash });
+      for (const p of model.proposals) this.host.journal.decide(p.agent, { kind: 'note', text: `model's words: ${p.reason || '(no reason given)'} → testing entry ${p.params.entryScore ?? '–'}, stop ${p.params.stopAtr ?? '–'}, target ${p.params.targetAtr ?? '–'}, hold ${p.params.maxHold ?? '–'} tonight` });
+    }
     for (const [n, id] of AGENT_IDS.entries()) {
       const allocation = this.host.sandbox(id)?.allocation ?? 10;
       const a = this.agentState(id);
       const current = this.host.settings.params[id];
       const adopted = a.candidates.filter((c) => key(c.params) !== key(current));
-      const candidates = [current, ...variants(current, this.rules.variants, hashSeed(`${day}|${id}|${n}`)), ...adopted.map((c) => c.params)];
+      const ideas = model.proposals.filter((p) => p.agent === id).map((p) => ({ ...current, ...p.params }));
+      const vs = variants(current, this.rules.variants, hashSeed(`${day}|${id}|${n}`));
+      const candidates = [current, ...vs, ...adopted.map((c) => c.params), ...ideas];
+      const source = (i) => (i === 0 ? 'current' : i <= vs.length ? 'variant' : i <= vs.length + adopted.length ? 'adopted' : 'model');
       const wf = wins.length ? walkForward({ bars, cache, candidates, preset, allocation, wins }) : { picks: [], tests: candidates.map(() => []) };
       const d = decide({ ...wf, allocation, lastChangeDay: a.lastChangeDay, today: day, rules: this.rules });
       const brief = (r) => ({ pnl: r.pnl, n: r.n, maxDrawdown: r.maxDrawdown });
@@ -206,14 +219,16 @@ export class Research {
         promoted: d.promote != null ? candidates[d.promote] : null,
         perWindow,
         adoptedCandidates: adopted.length,
+        modelIdeas: ideas.length,
+        promotedFrom: d.promote != null ? source(d.promote) : null,
       };
-      if (d.promote != null) this.promote(id, current, candidates[d.promote], d, day);
+      if (d.promote != null) this.promote(id, current, candidates[d.promote], { ...d, reason: source(d.promote) === 'model' ? `${d.reason} (the model's idea, tested like any other)` : d.reason }, day);
       a.lastResult = { day, ...results[id] };
       a.nights = [{ day, decision: d.reason, promoted: d.promote != null, current: d.current, best: d.best }, ...a.nights.filter((x) => x.day !== day)].slice(0, 30);
       a.candidates = adopted.filter((c) => key(c.params) !== key(candidates[d.promote ?? 0])).slice(-5);
     }
     if (wins.length) this.validateFindings(bars, cache, wins, day);
-    this.state.lastRun = { day, at: this.now(), ok: true, ms: this.now() - started, requests, newBars: update?.newBars ?? 0, symbols: Object.keys(bars).length, days: days.length, windows: wins.length, note: data ? '' : 'No Alpaca paper keys: evaluated the bars already stored (none yet on a first night).' };
+    this.state.lastRun = { day, at: this.now(), ok: true, ms: this.now() - started, requests, newBars: update?.newBars ?? 0, symbols: Object.keys(bars).length, days: days.length, windows: wins.length, model: this.ideas?.settings.enabled ? { proposals: model.proposals.length, dropped: model.dropped, error: model.error ?? null } : null, note: data ? '' : 'No Alpaca paper keys: evaluated the bars already stored (none yet on a first night).' };
     this.host.audit.write({ type: 'research', day, requests, windows: wins.length, promoted: Object.entries(results).filter(([, r]) => r.promoted).map(([id]) => id) });
     return { ...this.state.lastRun, results };
   }

@@ -47,6 +47,7 @@ export function ResearchView() {
         {run ? (
           <p className="small">
             Last run {when(run.at)} for {run.day}: {run.ok ? `${run.symbols} symbols, ${run.days} trading days stored, ${run.windows} windows, ${run.requests} Alpaca request${run.requests === 1 ? '' : 's'} (${run.newBars} new bars), ${((run.ms ?? 0) / 1000).toFixed(1)} s` : `failed: ${run.error}`}
+            {run.model ? `. Local model: ${run.model.error ? `not reached (${run.model.error})` : `${run.model.proposals} idea${run.model.proposals === 1 ? '' : 's'} tested${run.model.dropped.length ? `, ${run.model.dropped.length} dropped by the checks` : ''}`}` : ''}
             {run.note ? `. ${run.note}` : ''}
           </p>
         ) : (
@@ -132,7 +133,7 @@ function AgentResearch({ a, canRollback, busy, onRollback }: { a: ResearchAgent;
       {r && (
         <>
           <p className="small">
-            <b>{r.day}:</b> {r.decision}. {r.candidates} candidates{r.adoptedCandidates ? `, ${r.adoptedCandidates} adopted from other agents` : ''}.
+            <b>{r.day}:</b> {r.decision}. {r.candidates} candidates{r.adoptedCandidates ? `, ${r.adoptedCandidates} adopted from other agents` : ''}{r.modelIdeas ? `, ${r.modelIdeas} from the local model` : ''}.{r.promotedFrom === 'model' ? " The winner was the model's idea, tested like any other." : ''}
           </p>
           {r.bestParams && <p className="small muted">Best variant: {p(r.bestParams)}</p>}
           {!!r.perWindow.length && (

@@ -12,6 +12,9 @@
 //   GET  /api/research             the nightly research: last run, each agent's result, history
 //   POST /api/research/run         run it now (on the bars already stored and any new ones)
 //   POST /api/research/rollback    { agent }   back to the settings before its latest promotion
+//   GET  /api/llm                  the local model's research ideas: on/off, address, model, key set, last run
+//   PUT  /api/llm                  { enabled?, url?, model?, key?, clearKey? }   key write-only
+//   POST /api/llm/test             one tiny request to the local model
 //   GET  /api/alpaca               whether paper keys are saved, the last test. Never a key.
 //   PUT  /api/alpaca               { keyId, secret } or { clear: true }   write-only
 //   POST /api/alpaca/test          fetch SPY's latest bar once
@@ -39,7 +42,7 @@ function daysBetween(from, to) {
   return out;
 }
 
-export function createAgentsApi({ host, keys, research = null, now = Date.now }) {
+export function createAgentsApi({ host, keys, research = null, ideas = null, now = Date.now }) {
   const today = () => nyClock(now()).day;
   const dayParam = (q, name, fallback) => {
     const v = q.get(name);
@@ -121,6 +124,17 @@ export function createAgentsApi({ host, keys, research = null, now = Date.now })
           if (!research) throw new HttpError(404, 'Not found');
           if (!AGENT_IDS.includes(body?.agent)) throw new HttpError(400, 'Unknown agent');
           return { status: 200, body: bad(() => research.rollback(body.agent)) };
+        case 'GET /api/llm':
+          if (!ideas) throw new HttpError(404, 'Not found');
+          return { status: 200, body: ideas.status() };
+        case 'PUT /api/llm':
+          local();
+          if (!ideas) throw new HttpError(404, 'Not found');
+          return { status: 200, body: bad(() => ideas.update(body || {})) };
+        case 'POST /api/llm/test':
+          local();
+          if (!ideas) throw new HttpError(404, 'Not found');
+          return { status: 200, body: await ideas.test() };
         case 'GET /api/alpaca':
           return { status: 200, body: keys.status() };
         case 'PUT /api/alpaca':

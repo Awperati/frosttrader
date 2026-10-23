@@ -149,17 +149,19 @@ export type ResearchAgent = {
   params: AgentParams;
   lastChangeDay: string | null;
   candidates: { params: AgentParams; from: string; day: string }[];
-  lastResult: { day: string; candidates: number; windows: number; decision: string; promotedOk: boolean; current: Combined; best: Combined | null; bestParams: AgentParams | null; promoted: AgentParams | null; perWindow: WindowResult[]; adoptedCandidates: number } | null;
+  lastResult: { day: string; candidates: number; windows: number; decision: string; promotedOk: boolean; current: Combined; best: Combined | null; bestParams: AgentParams | null; promoted: AgentParams | null; perWindow: WindowResult[]; adoptedCandidates: number; modelIdeas?: number; promotedFrom?: string | null } | null;
   nights: { day: string; decision: string; promoted: boolean; current: Combined; best: Combined | null }[];
 };
 export type ResearchStatus = {
   rules: Record<string, number>;
-  lastRun: { day: string; at: number; ok: boolean; ms?: number; requests?: number; newBars?: number; symbols?: number; days?: number; windows?: number; note?: string; error?: string } | null;
+  lastRun: { day: string; at: number; ok: boolean; ms?: number; requests?: number; newBars?: number; symbols?: number; days?: number; windows?: number; note?: string; error?: string; model?: { proposals: number; dropped: string[]; error: string | null } | null } | null;
   running: boolean;
   agents: ResearchAgent[];
   history: { at: string; day?: string; agent: string; kind: 'promote' | 'rollback'; from: AgentParams; to: AgentParams; reason?: string; rolledBack?: boolean }[];
   adoptions: { at: string; type: 'validation' | 'adoption'; agent: string; finding: string; pass: boolean | null; reasons: string[] }[];
 };
+
+export type LlmStatus = { enabled: boolean; url: string; model: string; keySet: boolean; note: string; last: { at: number; ok: boolean; test?: boolean; proposals?: { agent: string; params: Partial<AgentParams>; reason: string }[]; dropped?: string[]; error?: string; answer?: string } | null };
 
 export type AlpacaStatus = { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null; use: string };
 
@@ -188,6 +190,9 @@ export const api = {
   summary: (day: string) => call<DaySummary>(`/api/agents/summary?day=${day}`),
   stats: (agent = '', days = 30) => call<AgentStats>(`/api/agents/stats?${new URLSearchParams({ days: String(days), ...(agent ? { agent } : {}) })}`),
   exportUrl: (what: 'trades' | 'decisions' | 'days', format: 'csv' | 'json', from: string, to: string) => `/api/agents/export?${new URLSearchParams({ what, format, from, to })}`,
+  llm: () => call<LlmStatus>('/api/llm'),
+  saveLlm: (u: { enabled?: boolean; url?: string; model?: string; key?: string; clearKey?: boolean }) => call<LlmStatus>('/api/llm', json('PUT', u)),
+  testLlm: () => call<LlmStatus>('/api/llm/test', json('POST', {})),
   research: () => call<ResearchStatus>('/api/research'),
   runResearch: () => call<unknown>('/api/research/run', json('POST', {})),
   rollback: (agent: string) => call<ResearchStatus>('/api/research/rollback', json('POST', { agent })),
