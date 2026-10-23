@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type AlpacaStatus, type FinvizStatus } from '../api';
 import { AgentsCard } from './AgentsSettings';
 import { ModelCard } from './ModelSettings';
+import { ConnectorCard } from './ConnectorSettings';
 
 // Settings: the Finviz Elite card, the Alpaca paper keys card and the paper agents card. Token and
 // key fields are write-only: the server never sends them back, so the fields start empty and only
@@ -13,6 +14,7 @@ export function Settings() {
       <AlpacaCard />
       <AgentsCard />
       <ModelCard />
+      <ConnectorCard />
     </div>
   );
 }

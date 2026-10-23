@@ -24,6 +24,7 @@ import { createAgentsApi } from './agents-api.mjs';
 import { FxRate } from './engine/data/fx.mjs';
 import { Research } from './engine/research/nightly.mjs';
 import { ModelIdeas } from './engine/research/hypotheses.mjs';
+import { ConnectorToken, createConnector } from './connector.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(root, 'data'));
@@ -51,7 +52,10 @@ if (process.env.AGENTS !== '0') host.start();
 const ideas = new ModelIdeas({ dataDir: DATA_DIR });
 const research = new Research({ dataDir: DATA_DIR, host, getData: () => alpacaKeys.client(), ideas });
 host.onDayEnd = (day) => research.run(day, finvizSource.symbols());
-const agents = createAgentsApi({ host, keys: alpacaKeys, research, ideas });
+// the Frost AI connector (MCP at /mcp): read tools plus stop/start/kill, behind a token made in Settings
+const connectorToken = new ConnectorToken({ dataDir: DATA_DIR });
+const connector = createConnector({ host, research, token: connectorToken });
+const agents = createAgentsApi({ host, keys: alpacaKeys, research, ideas, connectorToken, port: PORT });
 const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => ({ ...finvizSource.status(), holders: host.holders() }) });
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
@@ -103,7 +107,16 @@ const server = http.createServer(async (req, res) => {
       const out = await finviz.handle(req.method, url.pathname, req.headers, body);
       return send(res, out.status, out.body);
     }
-    if (/^\/api\/(agents|alpaca|research|llm)(\/|$)/.test(url.pathname)) {
+    if (url.pathname === '/mcp') {
+      const body = req.method === 'POST' ? await readJson(req, 64 * 1024) : null;
+      const out = await connector.handle(req.method, req.headers, body);
+      if (out.body === null) {
+        res.writeHead(out.status, { 'cache-control': 'no-store' });
+        return res.end();
+      }
+      return send(res, out.status, out.body);
+    }
+    if (/^\/api\/(agents|alpaca|research|llm|connector)(\/|$)/.test(url.pathname)) {
       const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 32 * 1024) : null;
       const out = await agents.handle(req.method, url.pathname, req.headers, body, url.searchParams);
       if (out.download) {

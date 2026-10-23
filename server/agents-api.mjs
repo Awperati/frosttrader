@@ -4,6 +4,7 @@
 //   GET  /api/agents               every agent's book, halts, kill state, recent audit events
 //   PUT  /api/agents/settings      { agentsAtOnce?, paperPerAgent?, preset?, params? }
 //   POST /api/agents/kill          { reason? }   the owner's kill switch
+//   POST /api/agents/pause         no new buys (exits keep running); /api/agents/unpause undoes it
 //   POST /api/agents/resume        clears the kill switch and an integrity halt (owner only)
 //   GET  /api/agents/decisions     ?day=YYYY-MM-DD&agent=&limit=   plain-language decision log
 //   GET  /api/agents/summary       ?day=                          the day's summary per agent and for all
@@ -15,6 +16,9 @@
 //   GET  /api/llm                  the local model's research ideas: on/off, address, model, key set, last run
 //   PUT  /api/llm                  { enabled?, url?, model?, key?, clearKey? }   key write-only
 //   POST /api/llm/test             one tiny request to the local model
+//   GET  /api/connector            the Frost AI connector: its address, whether a token exists, last used
+//   POST /api/connector/token      make a new token (shown once; the old one stops working)
+//   POST /api/connector/revoke     no token: the connector refuses everything
 //   GET  /api/alpaca               whether paper keys are saved, the last test. Never a key.
 //   PUT  /api/alpaca               { keyId, secret } or { clear: true }   write-only
 //   POST /api/alpaca/test          fetch SPY's latest bar once
@@ -42,7 +46,7 @@ function daysBetween(from, to) {
   return out;
 }
 
-export function createAgentsApi({ host, keys, research = null, ideas = null, now = Date.now }) {
+export function createAgentsApi({ host, keys, research = null, ideas = null, connectorToken = null, port = 8787, now = Date.now }) {
   const today = () => nyClock(now()).day;
   const dayParam = (q, name, fallback) => {
     const v = q.get(name);
@@ -76,6 +80,12 @@ export function createAgentsApi({ host, keys, research = null, ideas = null, now
         case 'POST /api/agents/kill':
           local();
           return { status: 200, body: host.kill(typeof body?.reason === 'string' && body.reason.trim() ? body.reason.slice(0, 200) : 'Kill switch pressed') };
+        case 'POST /api/agents/pause':
+          local();
+          return { status: 200, body: host.pauseBuying('owner') };
+        case 'POST /api/agents/unpause':
+          local();
+          return { status: 200, body: host.unpauseBuying('owner') };
         case 'POST /api/agents/resume':
           local();
           return { status: 200, body: host.resume() };
@@ -135,6 +145,20 @@ export function createAgentsApi({ host, keys, research = null, ideas = null, now
           local();
           if (!ideas) throw new HttpError(404, 'Not found');
           return { status: 200, body: await ideas.test() };
+        case 'GET /api/connector':
+          if (!connectorToken) throw new HttpError(404, 'Not found');
+          return { status: 200, body: { url: `http://127.0.0.1:${port}/mcp`, ...connectorToken.status() } };
+        case 'POST /api/connector/token':
+          local();
+          if (!connectorToken) throw new HttpError(404, 'Not found');
+          host.audit.write({ type: 'connector-token', action: 'new' });
+          return { status: 200, body: { url: `http://127.0.0.1:${port}/mcp`, token: connectorToken.create(), ...connectorToken.status(), shownOnce: true } };
+        case 'POST /api/connector/revoke':
+          local();
+          if (!connectorToken) throw new HttpError(404, 'Not found');
+          connectorToken.revoke();
+          host.audit.write({ type: 'connector-token', action: 'revoke' });
+          return { status: 200, body: { url: `http://127.0.0.1:${port}/mcp`, ...connectorToken.status() } };
         case 'GET /api/alpaca':
           return { status: 200, body: keys.status() };
         case 'PUT /api/alpaca':

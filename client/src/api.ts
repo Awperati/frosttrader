@@ -125,6 +125,7 @@ export type AgentsStatus = {
   usdPerAgent: number | null;
   killed: boolean;
   killReason: string;
+  paused: { by: string; at: number } | null;
   integrity: { reason: string; at: number } | null;
   poolPause: { day: string; reason: string } | null;
   marketOpen: boolean;
@@ -163,6 +164,8 @@ export type ResearchStatus = {
 
 export type LlmStatus = { enabled: boolean; url: string; model: string; keySet: boolean; note: string; last: { at: number; ok: boolean; test?: boolean; proposals?: { agent: string; params: Partial<AgentParams>; reason: string }[]; dropped?: string[]; error?: string; answer?: string } | null };
 
+export type ConnectorStatus = { url: string; set: boolean; created: string | null; lastUsed: string | null; token?: string; shownOnce?: boolean };
+
 export type AlpacaStatus = { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null; use: string };
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -190,6 +193,11 @@ export const api = {
   summary: (day: string) => call<DaySummary>(`/api/agents/summary?day=${day}`),
   stats: (agent = '', days = 30) => call<AgentStats>(`/api/agents/stats?${new URLSearchParams({ days: String(days), ...(agent ? { agent } : {}) })}`),
   exportUrl: (what: 'trades' | 'decisions' | 'days', format: 'csv' | 'json', from: string, to: string) => `/api/agents/export?${new URLSearchParams({ what, format, from, to })}`,
+  connector: () => call<ConnectorStatus>('/api/connector'),
+  newConnectorToken: () => call<ConnectorStatus>('/api/connector/token', json('POST', {})),
+  revokeConnector: () => call<ConnectorStatus>('/api/connector/revoke', json('POST', {})),
+  pauseBuying: () => call<AgentsStatus>('/api/agents/pause', json('POST', {})),
+  unpauseBuying: () => call<AgentsStatus>('/api/agents/unpause', json('POST', {})),
   llm: () => call<LlmStatus>('/api/llm'),
   saveLlm: (u: { enabled?: boolean; url?: string; model?: string; key?: string; clearKey?: boolean }) => call<LlmStatus>('/api/llm', json('PUT', u)),
   testLlm: () => call<LlmStatus>('/api/llm/test', json('POST', {})),

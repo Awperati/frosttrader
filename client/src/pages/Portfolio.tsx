@@ -56,6 +56,12 @@ export function Portfolio() {
         last tick {time(st.lastTick)}
         {st.lastError && <div className="notice small">{st.lastError}</div>}
         {st.poolPause && <div className="notice small">All agents stopped buying for today: {st.poolPause.reason}.</div>}
+        {st.paused && (
+          <div className="notice small">
+            New buys are stopped ({st.paused.by}); exits keep running.{' '}
+            <button onClick={() => api.unpauseBuying().then(setSt, (e) => setErr((e as Error).message))}>Allow buys again</button>
+          </div>
+        )}
         {stopped && (
           <div className="error small">
             {st.killed ? `Kill switch on: ${st.killReason}.` : `Integrity halt: ${st.integrity?.reason}.`} Everything was sold and every agent is stopped until you resume.{' '}

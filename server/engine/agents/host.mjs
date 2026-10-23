@@ -85,7 +85,7 @@ export class AgentHost {
     this.stateFile = path.join(dataDir, 'agents-host.json');
     this.killFile = path.join(dataDir, 'KILL');
     this.settings = cleanSettings(readJson(this.settingsFile) || {}, DEFAULT_SETTINGS);
-    this.state = { killed: false, killReason: '', killedAt: null, integrity: null, day: null, closedDay: null, poolPause: null, lastTick: null, lastError: '', agents: {}, ...(readJson(this.stateFile) || {}) };
+    this.state = { killed: false, killReason: '', killedAt: null, integrity: null, day: null, closedDay: null, poolPause: null, paused: null, lastTick: null, lastError: '', agents: {}, ...(readJson(this.stateFile) || {}) };
     for (const id of AGENT_IDS) this.state.agents[id] = { ...blankAgent(), ...(this.state.agents[id] || {}) };
     this.audit = new AuditLog({ dir: dataDir, now });
     this.knowledge = new KnowledgeStore({ dir: path.join(dataDir, 'knowledge') });
@@ -179,6 +179,29 @@ export class AgentHost {
   }
 
   /** Only the owner (Settings, this computer): clears the kill switch and an integrity halt. */
+  /**
+   * Stop new buys (exits and halts keep running): from the Frost AI connector's "stop" or Settings.
+   * Not the kill switch: nothing is sold, and unpauseBuying() undoes it.
+   */
+  pauseBuying(by = 'owner') {
+    if (!this.state.paused) {
+      this.state.paused = { by, at: this.now() };
+      this.audit.write({ type: 'pause', by });
+      this.save();
+    }
+    return this.status();
+  }
+
+  /** Undo pauseBuying(). It does not clear the kill switch or an integrity halt: only resume() does, from FrostTrader's own screen. */
+  unpauseBuying(by = 'owner') {
+    if (this.state.paused) {
+      this.state.paused = null;
+      this.audit.write({ type: 'unpause', by });
+      this.save();
+    }
+    return this.status();
+  }
+
   resume() {
     fs.rmSync(this.killFile, { force: true });
     const was = { killed: this.state.killed, integrity: this.state.integrity };
@@ -487,7 +510,7 @@ export class AgentHost {
 
     // entries
     const inWindow = clock.minute >= OPEN_MIN + TIMING.noEntryFirst && clock.minute < CLOSE_MIN - TIMING.noEntryLast;
-    if (inWindow && !this.state.poolPause) {
+    if (inWindow && !this.state.poolPause && !this.state.paused) {
       const ids = this.running().filter((id) => !this.state.agents[id].dayHalt && this.state.agents[id].sitOut === 0);
       const sent = {};
       for (const s of universe) if (bars[s]?.length) sent[s] = bars[s].slice(-TIMING.barsPerSymbol);
@@ -661,6 +684,7 @@ export class AgentHost {
       usdPerAgent: this.usdPerAgent(),
       killed: this.state.killed,
       killReason: this.state.killReason,
+      paused: this.state.paused,
       integrity: this.state.integrity,
       poolPause: this.state.poolPause,
       marketOpen: marketOpen(this.now()),
