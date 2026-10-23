@@ -17,7 +17,7 @@ here is reachable from master's server. Nothing here has ever placed an order.
 |---|---|
 | `server/auth.mjs` | `verify(ip, body)`: password + code with the sign-in lockout, no device created. Done. |
 | `package.json` | `npm start` loads `.env` (`--env-file-if-exists`), for `FROST_TRADER_PASSWORD` and `FROST_TRADER_TOTP_SECRET`. Done. |
-| `server/alpaca-keys.mjs` | `kind: 'live'` key store (`alpaca-live-keys.json`, AK keys only), `broker()`, read-only account test. Done. |
+| `server/live-keys.mjs` | Live key store (`alpaca-live-keys.json`, AK keys only), `broker()`, read-only account test. Done. |
 | `server/engine/broker/alpaca-live.mjs` | Live adapter: fixed host (a test server only on 127.0.0.1), account, positions, notional buys / qty sells with `client_order_id`, lookup by client id, close-all. Done, untested. |
 | `server/engine/live/enablement.mjs` | Limits (proposed, hard caps), signed `owner/live-enablement.json` (HMAC keyed from his password), lower-only edits, revoke. Done, untested. |
 | `server/engine/live/desk.mjs` | The live desk: AUD sub-ledgers at fill-time cost, checks L1–L5, 17, 18 (settled cash, T+1), 19 (day trades: 3 in 5 business days), pending orders by client id, exits, halts, reconciliation, stop-all, owner resume. Written, untested. |
