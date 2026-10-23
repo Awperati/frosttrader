@@ -16,6 +16,7 @@ import { DEFAULT_LIMITS, HARD_LIMITS, cleanLimits, isTighter } from './risk.mjs'
 import { gameState } from './game.mjs';
 import { SIGNALS, backtestSignal, describe } from './signals/index.mjs';
 import { marketOpen, nyClock } from './stats.mjs';
+import { readWatchlist } from './finviz.mjs';
 
 export class Engine {
   constructor({ store, dataDir, env = {}, tickMs = 400, onChange = () => {} }) {
@@ -25,6 +26,8 @@ export class Engine {
     this.onChange = onChange;
     this.mode = env.ALPACA_KEY_ID && env.ALPACA_SECRET_KEY ? 'alpaca' : 'sim';
     this.watchlist = String(env.WATCHLIST || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+    // No WATCHLIST in .env: use the owner's Finviz screeners (DATA_DIR/watchlist.json, finviz.mjs).
+    if (!this.watchlist.length) this.watchlist = readWatchlist(dataDir)?.symbols || [];
     this.cash = Number(env.SIM_CASH || 10_000);
     this.running = false;
     this.timer = null;

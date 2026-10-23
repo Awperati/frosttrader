@@ -1,7 +1,7 @@
 // The hook for the owner's own symbols (his Finviz watchlist), stage 0.
 //
-// Frost Trader never fetches Finviz: it has no public API, its terms restrict automated access
-// and the watchlist sits behind his login. He brings the symbols himself, one of two ways:
+// The main source is his Finviz Elite screeners, fetched with his API token (server/engine/finviz.mjs).
+// This module is the manual path: it never fetches anything. He brings the symbols, one of two ways:
 //   - paste: tickers separated by commas, spaces, semicolons or new lines ("AAPL, MSFT NVDA");
 //   - export: the CSV from Finviz's export button (Finviz Elite). Only the "Ticker" column is
 //     read; every other column is ignored and nothing else from the file is kept.
@@ -15,7 +15,7 @@ import { STOCK } from './risk.mjs';
 
 export const MAX_SYMBOLS = 40; // the engine's existing cap
 
-function splitCsvLine(line) {
+export function splitCsvLine(line) {
   const out = [];
   let cur = '';
   let q = false;

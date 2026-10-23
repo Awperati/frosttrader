@@ -2,7 +2,8 @@
 //
 //   npm run build && npm start      then open http://127.0.0.1:8787
 //
-// It serves the built client (client/dist) and the read-only /api/numbers routes. It does not
+// It serves the built client (client/dist) and the read-only /api/numbers routes. It also runs the
+// Finviz Elite screener source (server/engine/finviz.mjs), which fetches ticker names only. It does not
 // start the trading engine, construct a broker, or read broker keys: stage 0 places no orders.
 // It listens on 127.0.0.1 only. Sign-in (server/auth.mjs) must be wired in before it is ever
 // exposed beyond this machine.
@@ -12,6 +13,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HttpError } from './store.mjs';
 import { createNumbersApi } from './numbers-api.mjs';
+import { createFinvizApi } from './finviz-api.mjs';
+import { FinvizSource } from './engine/finviz.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(root, 'data'));
@@ -21,7 +24,10 @@ const HOST = '127.0.0.1';
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
 
-const numbers = createNumbersApi({ dataDir: DATA_DIR });
+// The owner's Finviz Elite screeners: the only outside call stage 0 makes (names only, no orders).
+const finvizSource = new FinvizSource({ dataDir: DATA_DIR }).start();
+const finviz = createFinvizApi({ source: finvizSource });
+const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => finvizSource.status() });
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -65,6 +71,11 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/numbers' || url.pathname.startsWith('/api/numbers/')) {
       const body = req.method === 'POST' ? await readJson(req) : null;
       const out = await numbers.handle(req.method, url.pathname, url.searchParams, body);
+      return send(res, out.status, out.body);
+    }
+    if (url.pathname === '/api/finviz' || url.pathname.startsWith('/api/finviz/')) {
+      const body = req.method === 'PUT' ? await readJson(req, 16 * 1024) : null;
+      const out = await finviz.handle(req.method, url.pathname, req.headers, body);
       return send(res, out.status, out.body);
     }
     if (url.pathname.startsWith('/api/')) throw new HttpError(404, 'Not found');

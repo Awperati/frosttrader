@@ -23,7 +23,7 @@ Paper only. Not financial advice. Nothing in the app predicts prices or claims a
 | **Proposals and log** | Every order intent from the trading agents, which agent sent it, the gate's verdict and the reason, and the audit chain status. Read-only. | Stage 0, second part (shadow gate) |
 | **Paper portfolio** | Paper cash, positions, fills, the day's P&L and the equity curve, from the Alpaca paper account or the simulator. | Stage 1 |
 | **Risk and limits** | Current limits beside `HARD_LIMITS`. Tightening takes effect at once. Loosening waits for the next trading day and breaks the discipline streak (as `engine.setLimits` does today). Shows automatic halts. | Stage 1 |
-| **Settings** | Watchlist (paste or Finviz CSV export), data source, sign-in and devices, and the secret-store status (whether a key is set, never its value). | Stage 0 for the watchlist; the rest later |
+| **Settings** | Finviz Elite screeners (URLs + write-only API token, Test, last fetch), data source, sign-in and devices, and the secret-store status (whether a key is set, never its value). | Stage 0 for the watchlist; the rest later |
 | **Kill switch** | Always in the top bar, on every screen. It stops new orders and cancels open ones, with an optional "and close all" (see DESIGN-llm-automation §6 and Q4). In stage 0 it is shown disabled, because nothing is trading. | Stage 1 |
 
 The layout is a top bar (brand, stage badge, screens, kill switch), a main area, and a footer that
@@ -162,8 +162,8 @@ used here as a reference only.
 | Stage 0 display, daily studies | HF index CSV (local) | Scraped from Yahoo; ends 5 Apr 2024; indices only; local use, labelled |
 | Live and historical prices for the watchlist (stage 0 shadow onward) | **Alpaca market data** with the owner's paper keys | Free plan: IEX real-time (a slice of total volume), SIP 15 minutes delayed, history to 2016. The report names the feed. |
 | Second opinion (optional) | Tiingo, or the Polygon free tier | Personal-use terms, with the owner's own key in the secret store |
-| Symbol names | The owner's Finviz watchlist, by paste or CSV export | Finviz is never fetched or logged into. Only the `Ticker` column is read. |
-| Never | yfinance, Yahoo or Finviz scraping | Not licensed for this use |
+| Symbol names | The owner's Finviz Elite screeners via the Screener API export (`server/engine/finviz.mjs`), or a paste | Token-based export only: never his password, never page scraping. Only the `Ticker` column is read. |
+| Never | yfinance, Yahoo or Finviz page scraping | Not licensed for this use |
 
 ## 8. Code map (this branch)
 
@@ -172,6 +172,7 @@ used here as a reference only.
 | `server/engine/data/indexes.mjs` | Loader for the HF index CSV: parsing, quality report, `^` symbols, `indexBars()` |
 | `server/engine/numbers.mjs` | `quote`, `sliceRange`, `compress`, `seriesStats` (built on `stats.mjs`), `historyPage` |
 | `server/engine/watchlist-input.mjs` | `parseTickers()`: a paste or Finviz CSV export, checked against `STOCK`, at most 40. Not stored. |
+| `server/engine/finviz.mjs` | Finviz Elite screener source: export URLs, rate limit, backoff, redaction, last good list in `DATA_DIR/watchlist.json`. |
 | `server/numbers-api.mjs` | Read-only `/api/numbers` routes, as plain functions for tests |
 | `server/index.mjs` | HTTP server on 127.0.0.1: serves `client/dist` and `/api/numbers`. No engine or broker. |
 | `server/engine/backtest.mjs` | `indexStudy()`, the daily study for the harness |

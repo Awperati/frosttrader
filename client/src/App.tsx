@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { StockNumbers } from './pages/StockNumbers';
+import { Settings } from './pages/Settings';
 
 // The app's screens (docs/APP-DESIGN.md). Stage 0 builds only Stock numbers; the others are
 // listed so the layout is settled, and say which stage brings them.
@@ -8,7 +9,7 @@ const SCREENS = [
   { id: 'proposals', label: 'Proposals and log', stage: 0, later: 'Arrives with the shadow gate (stage 0, second part): what the local model proposed and what the gate decided.' },
   { id: 'portfolio', label: 'Paper portfolio', stage: 1, later: 'Arrives in stage 1 (paper trading).' },
   { id: 'risk', label: 'Risk and limits', stage: 1, later: 'Arrives in stage 1. Limits can be tightened at once; loosening waits for the next trading day.' },
-  { id: 'settings', label: 'Settings', stage: 0, later: 'Watchlist, data source and sign-in. Not built yet.' },
+  { id: 'settings', label: 'Settings', stage: 0 },
 ] as const;
 
 type Id = (typeof SCREENS)[number]['id'];
@@ -39,6 +40,8 @@ export function App() {
       <main>
         {screen === 'numbers' ? (
           <StockNumbers />
+        ) : screen === 'settings' ? (
+          <Settings />
         ) : (
           <div className="panel">
             <h2>{current.label}</h2>

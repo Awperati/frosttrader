@@ -18,7 +18,7 @@ export type Quote = {
 
 export type Labels = { source: string; lastDay: string | null; ageDays: number | null; notice: string; kind: string };
 
-export type WatchlistHook = { status: 'not-set' | 'set'; symbols: string[]; how: string; pricesFrom: string };
+export type WatchlistHook = { status: 'not-set' | 'set'; symbols: string[]; ageMin: number | null; stale: boolean; how: string; pricesFrom: string };
 
 export type SymbolRow = { symbol: string; name: string; hasVolume: boolean; quote: Quote; spark: number[]; from: string; to: string };
 
@@ -74,6 +74,22 @@ export type HistoryPage = { symbol: string; page: number; size: number; pages: n
 
 export type TickerPreview = { source: 'paste' | 'csv'; symbols: string[]; rejected: { value: string; reason: string }[]; stored: false };
 
+export type FinvizFetch = { at: number; ok: boolean; error: string | null; reason: string; perUrl: { url: string; rows: number | null; error: string | null }[] };
+
+export type FinvizStatus = {
+  urls: string[];
+  intervalMin: number;
+  intervals: number[];
+  tokenSet: boolean;
+  inWindow: boolean;
+  window: string;
+  last: FinvizFetch | null;
+  list: { source: 'finviz'; at: number; symbols: string[]; rows: number; dropped: number; rejected: string[]; ageMin: number; stale: boolean } | null;
+  note: string | null;
+};
+
+export type FinvizUpdate = { urls?: string[]; intervalMin?: number; token?: string; clearToken?: boolean };
+
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
@@ -89,4 +105,7 @@ export const api = {
   history: (symbol: string, page: number, size = 25) => call<HistoryPage>(`/api/numbers/${sym(symbol)}/history?page=${page}&size=${size}`),
   previewTickers: (text: string) =>
     call<TickerPreview>('/api/numbers/watchlist/preview', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }),
+  finviz: () => call<FinvizStatus>('/api/finviz'),
+  saveFinviz: (u: FinvizUpdate) => call<FinvizStatus>('/api/finviz', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(u) }),
+  testFinviz: () => call<FinvizStatus>('/api/finviz/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
 };

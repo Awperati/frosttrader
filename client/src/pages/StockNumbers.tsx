@@ -346,7 +346,13 @@ function WatchlistPanel({ hook }: { hook: Overview['watchlist'] }) {
   return (
     <div className="watch">
       <h3>Your symbols</h3>
-      <p className="small muted">Not set up yet. {hook.how}</p>
+      {hook.status === 'set' ? (
+        <p className={`small ${hook.stale ? 'notice' : 'muted'}`}>
+          From your Finviz screeners{hook.ageMin != null ? `, fetched ${hook.ageMin} min ago` : ''}{hook.stale ? ' (last fetch failed, so this is the last good list)' : ''}: {hook.symbols.join(', ')}
+        </p>
+      ) : (
+        <p className="small muted">Not set up yet. {hook.how}</p>
+      )}
       <p className="small muted">{hook.pricesFrom}</p>
       {!open ? (
         <button onClick={() => setOpen(true)}>Try a paste</button>

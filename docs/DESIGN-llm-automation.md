@@ -110,9 +110,14 @@ What it has:
 
 ## 3. Data and the watchlist (rule f)
 
-Finviz has no public API. Its terms restrict automated access, and the watchlist
-(`finviz.com/watchlist?w=5210`) is behind the owner's login. Frost Trader **does not fetch Finviz in
-any way and never asks for or stores the Finviz password.**
+**Update 23 Oct 2026:** the owner has Finviz Elite, whose **Screener API** exports any screener as
+CSV with an API token (`export/screener?type=stocks&…&auth=<token>`). That is Finviz's own sanctioned
+route, so the main source is now his screeners, fetched by `server/engine/finviz.mjs` (Settings →
+Finviz Elite). The token lives only in `DATA_DIR/finviz-token.json` (git-ignored), is write-only in
+the UI and is redacted from every log and error. At most 2 requests per 5 s (Finviz allows 10 per 5 s
+for the whole account), weekdays 09:00–16:15 New York, every 15 min by default; backoff on 429/5xx;
+the last good list stays on failure, with its age shown. Watchlist pages and the Finviz password are
+still never used. Paste stays as a fallback.
 
 Options, cleanest first:
 

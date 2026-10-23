@@ -18,7 +18,7 @@ export const NOTICE = 'Paper only. Not financial advice.';
 
 const fmtDay = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
-export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = () => Date.now() } = {}) {
+export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = () => Date.now(), watchlist = () => null } = {}) {
   const dataset = () => loadIndexDataset(file);
 
   function labels(ds) {
@@ -41,7 +41,7 @@ export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = (
         labels: labels(null),
         how: `Download ${DATASET.file} once with "npm run fetch:indexes" (it saves to ${file}), then reload.`,
         symbols: [],
-        watchlist: watchlistHook(),
+        watchlist: watchlistHook(watchlist()),
       };
     }
     const symbols = Object.values(ds.series)
@@ -62,7 +62,7 @@ export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = (
       labels: labels(ds),
       ranges: Object.keys(RANGES),
       symbols,
-      watchlist: watchlistHook(),
+      watchlist: watchlistHook(watchlist()),
     };
   }
 
@@ -118,12 +118,15 @@ export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = (
   };
 }
 
-/** What the view shows for the owner's own symbols until he provides them. */
-export function watchlistHook() {
+/** What the view shows for the owner's own symbols: his Finviz Elite screeners once they have been fetched. */
+export function watchlistHook(finviz = null) {
+  const list = finviz?.list;
   return {
-    status: 'not-set',
-    symbols: [],
-    how: 'Paste your Finviz tickers, or upload its CSV export (only the Ticker column is read). Frost Trader never logs in to or scrapes Finviz.',
+    status: list?.symbols?.length ? 'set' : 'not-set',
+    symbols: list?.symbols || [],
+    ageMin: list ? list.ageMin : null,
+    stale: !!list?.stale,
+    how: 'Add your Finviz Elite screener URL and API token in Settings, or paste tickers to check them. Frost Trader never logs in to or scrapes Finviz.',
     pricesFrom: 'Prices for your symbols need a licensed source, such as your broker\'s market-data API (Alpaca). Not set up yet.',
   };
 }

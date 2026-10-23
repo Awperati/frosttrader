@@ -160,3 +160,12 @@ th, td { padding: 5px 10px; text-align: right; border-bottom: 1px solid var(--li
 th:first-child, td:first-child { text-align: left; }
 th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
 tbody tr:hover { background: var(--panel-2); }
+
+/* Settings */
+.settings { max-width: 760px; }
+.field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.field > span:first-child { font-weight: 600; font-size: 13px; }
+.field.inline { flex-direction: row; align-items: center; gap: 8px; }
+select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; }
+.finviz .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.finviz-status { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; overflow-wrap: anywhere; }
