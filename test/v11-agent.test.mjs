@@ -47,7 +47,7 @@ function makeHost(script) {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, 'agents-settings.json'), JSON.stringify({ ...DEFAULT_SETTINGS, agentsAtOnce: 4 }));
   const clock = { t: T0 };
-  const market = { prices: { ADI: 250, AAPL: 200 }, last: {} };
+  const market = { prices: { ADI: 250, AAPL: 200, FLEX: 60, MSFT: 400 }, last: {} };
   const asked = [];
   const data = {
     bars: async (symbols) => {
@@ -90,6 +90,27 @@ test('host: a v11 agent gets the 38 stocks\' bars, buys at the model\'s threshol
   assert.equal(plan.target, null);
   assert.equal(plan.signal, 'model_v11');
   assert.ok(st.models.v11.threshold > 0.5);
+  host.stop();
+});
+
+test('host: the v11 agent may buy its own 38 stocks off the watchlist; signal agents may not', async () => {
+  // the owner, 25 Oct 2026: "let the v11 agent trade all 38 of its own stocks even if they are not on my watchlist"
+  const { host } = makeHost((id, m) => {
+    if (m.t !== T0) return [];
+    if (id === 'agent-d') return [v11buy('FLEX', 0.62), v11buy('MSFT', 0.65)];
+    if (id === 'agent-a') return [{ symbol: 'FLEX', action: 'buy', signal: 'stop_run', score: 0.9 }];
+    return [];
+  });
+  const st = await host.tick();
+  const d = st.agents.find((a) => a.id === 'agent-d');
+  assert.deepEqual(d.positions.map((p) => p.symbol), ['FLEX'], 'FLEX is one of the 38, not on the watchlist (ADI, AAPL)');
+  assert.ok(host.state.agents['agent-d'].plans.FLEX.trailPct > 0);
+  assert.equal(st.lastError, '', 'the tick ran to the end');
+  assert.ok(host.journal.decisions('2026-10-21', 'agent-d').some((x) => /^bought .* FLEX .*trailing stop/.test(x.text)), 'the decision log reads the trailing stop');
+  const refused = host.audit.tail(40).filter((e) => e.type === 'refused');
+  assert.ok(refused.some((e) => e.agent === 'agent-d' && e.symbol === 'MSFT' && /not on the watchlist or among the v11 model's stocks/.test(e.reason)), 'MSFT is neither');
+  assert.ok(refused.some((e) => e.agent === 'agent-a' && e.symbol === 'FLEX' && /not on the watchlist/.test(e.reason)), 'a signal agent keeps the watchlist');
+  assert.equal(st.agents.find((a) => a.id === 'agent-a').positions.length, 0);
   host.stop();
 });
 

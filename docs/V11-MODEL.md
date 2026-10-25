@@ -40,8 +40,10 @@ A SIP-trained copy scored 54.8 % on 73 trades and fell to 46 % when fed IEX bars
 - `server/engine/models/v11.mjs` computes the features and walks the exported trees in JavaScript, so
   no Python runs in the app. `test/v11-parity.test.mjs` checks it against Python's own numbers.
 - The host fetches about two weeks of bars for all 38 stocks each tick (the market features need them)
-  and sends them to the v11 agent. The agent can buy only those of the 38 that are on the watchlist
-  (gate check 17).
+  and sends them to the v11 agent. The v11 agent may buy any of its 38 stocks, on the watchlist or
+  not (the owner, 25 Oct 2026: "let the v11 agent trade all 38 of its own stocks even if they are not
+  on my watchlist"). Gate check 17 still applies to it with that list; signal agents keep the
+  watchlist only.
 - Exits run in the host, as for every agent.
 
 ## Rebuilding it

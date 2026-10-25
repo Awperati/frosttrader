@@ -528,7 +528,7 @@ export class AgentHost {
         ids.map(async (id) => {
           const strategy = this.strategyOf(id);
           const msg = { type: 'tick', t: now, strategy, params: this.settings.params[id], bars: sent, held: Object.keys(this.holders()) };
-          if (strategy === 'v11') msg.context = context;
+          if (strategy === 'v11') Object.assign(msg, { context, bars: Object.fromEntries(Object.entries(context).map(([s, list]) => [s, list.slice(-TIMING.barsPerSymbol)])) });
           return [id, await this.ask(id, msg)];
         }),
       );
@@ -536,7 +536,10 @@ export class AgentHost {
         const items = ans?.items || [];
         this.state.agents[id].lastProposals = items;
         this.logConsidered(id, ans?.considered || []);
-        for (const p of items || []) this.enter(id, p, bars[p.symbol] || [], universe);
+        // the owner (25 Oct 2026): "let the v11 agent trade all 38 of its own stocks even if they are not on my
+        // watchlist". So a v11 agent's list is the watchlist plus the model's 38; signal agents keep the watchlist.
+        const allowed = this.strategyOf(id) === 'v11' ? new Set([...universe, ...loadModel().universe]) : universe;
+        for (const p of items || []) this.enter(id, p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], allowed);
       }
     }
 
@@ -682,7 +685,7 @@ export class AgentHost {
       this.audit.write({ type: ok ? 'fill' : 'refused', agent: id, side: 'buy', symbol: p.symbol, signal: p.signal, score: p.score, reason, ...extra });
     };
     if (!sb || a.dayHalt || this.state.killed) return;
-    if (!universe.has(p.symbol)) return decide(false, `AGENT_CAPITAL: ${p.symbol} is not on the watchlist`);
+    if (!universe.has(p.symbol)) return decide(false, `AGENT_CAPITAL: ${p.symbol} is not on the watchlist${this.strategyOf(id) === 'v11' ? ' or among the v11 model\'s stocks' : ''}`);
     const v11 = this.strategyOf(id) === 'v11';
     // a v11 agent's buys must clear the model's own threshold (scores come rounded to 3 places); its entry score is not used
     if (v11 ? p.score < loadModel().threshold - 0.001 : p.score < this.settings.params[id].entryScore) return decide(false, v11 ? 'probability under the model\'s threshold' : 'score under the agent\'s entry score');

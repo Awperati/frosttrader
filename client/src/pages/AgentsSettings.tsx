@@ -96,7 +96,7 @@ export function AgentsCard() {
       <p className="small muted">
         Strategy “signals” uses the numbers in its row (tuned each night). “v11 model” sets its own buys and exits: it buys when its
         probability is at least {v11?.threshold != null ? v11.threshold.toFixed(3) : '…'}, and sells on a close {v11 ? (v11.exit.kind === 'atr' ? `${v11.exit.stop} ATR` : `${(v11.exit.stop * 100).toFixed(1)} %`) : '…'} under the best
-        close since the buy, after {v11?.exit.maxHold ?? 20} bars, or at the close. It can buy only its 38 stocks that are on your watchlist
+        close since the buy, after {v11?.exit.maxHold ?? 20} bars, or at the close. It can buy any of its 38 stocks, on your watchlist or not
         {v11?.test ? `. Its test (${v11.testPeriod}): ${v11.test.trades} trades, ${(v11.test.win_rate * 100).toFixed(1)} % won, ${v11.test.avg_bps.toFixed(1)} bps a trade after costs; past results, not a forecast` : ''}.
       </p>
       <div className="table-wrap">

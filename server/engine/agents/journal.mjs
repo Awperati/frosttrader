@@ -31,7 +31,7 @@ export const say = {
           ? `considered ${symbol}: no entry signal, skipped`
           : `considered ${symbol}: ${why}`,
   bought: ({ symbol, qty, price, rate, signal, score, stop, target }) =>
-    `bought ${qtyText(qty)} ${symbol} at ${usd(price)}${rate ? ` (${aud((qty * price) / rate)})` : ''}: ${signal} ${score.toFixed(2)}; stop ${stop.toFixed(2)}, target ${target.toFixed(2)}`,
+    `bought ${qtyText(qty)} ${symbol} at ${usd(price)}${rate ? ` (${aud((qty * price) / rate)})` : ''}: ${signal} ${score.toFixed(2)}; ${target == null ? `trailing stop ${stop.toFixed(2)} (moves up with the best close)` : `stop ${stop.toFixed(2)}, target ${target.toFixed(2)}`}`,
   refused: ({ symbol, reason }) => `refused ${symbol}: ${reason}`,
   sold: ({ symbol, qty, price, why, pnlUsd, rate }) => `sold ${qtyText(qty)} ${symbol} at ${usd(price)} (${why}), ${rate ? signedAud(pnlUsd / rate) : `${pnlUsd >= 0 ? '+' : '−'}${usd(Math.abs(pnlUsd))}`}`,
   halt: ({ reason }) => `halted: ${reason}`,
