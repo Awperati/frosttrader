@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DATASET, datasetPath, parseIndexCsv } from '../server/engine/data/indexes.mjs';
+import { DATASET, datasetPath, downloadIndexDataset } from '../server/engine/data/indexes.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const file = datasetPath(path.resolve(process.env.DATA_DIR || path.join(root, 'data')));
@@ -16,15 +16,12 @@ if (fs.existsSync(file) && !process.argv.includes('--force')) {
   console.log(`Already there: ${file} (use --force to download again)`);
   process.exit(0);
 }
-const res = await fetch(DATASET.download, { redirect: 'follow' });
-if (!res.ok) {
-  console.error(`Download failed: HTTP ${res.status} from ${DATASET.download}`);
+let got;
+try {
+  got = await downloadIndexDataset(file);
+} catch (e) {
+  console.error(`Download failed: ${e.message}`);
   process.exit(1);
 }
-const text = await res.text();
-const parsed = parseIndexCsv(text); // throws if the columns are not what the loader expects
-fs.mkdirSync(path.dirname(file), { recursive: true });
-fs.writeFileSync(file + '.tmp', text);
-fs.renameSync(file + '.tmp', file);
-console.log(`Saved ${file}: ${parsed.rows} rows, ${parsed.quality.symbols} indices, ${parsed.quality.from} to ${parsed.quality.to}.`);
+console.log(`Saved ${file}: ${got.rows} rows, ${got.symbols} indices, ${got.from} to ${got.to}.`);
 console.log(`Source: ${DATASET.url}. ${DATASET.provenance}`);

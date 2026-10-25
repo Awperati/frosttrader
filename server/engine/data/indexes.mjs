@@ -181,6 +181,36 @@ const cache = new Map();
  * Load the dataset from disk once per file (re-read when the file changes).
  * Returns null when the file is not there (the UI then says how to get it).
  */
+/**
+ * Download the dataset: one HTTPS GET of the CSV from Hugging Face. The columns are checked before
+ * anything is saved, and the file is replaced in one step. Returns { path, rows, symbols, from, to }.
+ */
+export async function downloadIndexDataset(file, { fetchImpl = (...a) => globalThis.fetch(...a), url = DATASET.download, timeoutMs = 120_000 } = {}) {
+  let res;
+  try {
+    res = await fetchImpl(url, { redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    throw new Error(`Could not reach Hugging Face: ${e.message}`);
+  }
+  if (!res.ok) throw new Error(`Hugging Face answered HTTP ${res.status}`);
+  const text = await res.text();
+  const parsed = parseIndexCsv(text); // throws if the columns are not what the loader expects
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(`${file}.tmp`, text);
+  fs.renameSync(`${file}.tmp`, file);
+  return { path: file, rows: parsed.rows, symbols: parsed.quality.symbols, from: parsed.quality.from, to: parsed.quality.to };
+}
+
+/** Why the dataset file can't be read: '' when it can, else the error code (ENOENT: not there). */
+export function datasetProblem(file) {
+  try {
+    fs.accessSync(file, fs.constants.R_OK);
+    return '';
+  } catch (e) {
+    return e.code || e.message;
+  }
+}
+
 export function loadIndexDataset(file) {
   let st;
   try {

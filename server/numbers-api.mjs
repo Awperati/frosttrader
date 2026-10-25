@@ -7,10 +7,13 @@
 //                                             a page of daily OHLC history, newest first
 //   POST /api/numbers/watchlist/preview       { text } -> the tickers a paste or Finviz CSV
 //                                             export would give. Checked only, never stored.
+//   POST /api/numbers/dataset/download        download the index dataset from Hugging Face into
+//                                             DATA_DIR/datasets (this computer only)
 //
 // Nothing here can place an order: the module imports no broker.
 import { HttpError } from './store.mjs';
-import { DATASET, datasetPath, isoDay, loadIndexDataset } from './engine/data/indexes.mjs';
+import { DATASET, datasetPath, datasetProblem, downloadIndexDataset, isoDay, loadIndexDataset } from './engine/data/indexes.mjs';
+import { checkLocal } from './finviz-api.mjs';
 import { RANGES, ageDays, compress, historyPage, quote, rangeReturns, seriesStats, sliceRange } from './engine/numbers.mjs';
 import { parseTickers } from './engine/watchlist-input.mjs';
 
@@ -18,8 +21,9 @@ export const NOTICE = 'Paper only. Not financial advice.';
 
 const fmtDay = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
-export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = () => Date.now(), watchlist = () => null } = {}) {
+export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = () => Date.now(), watchlist = () => null, fetchImpl } = {}) {
   const dataset = () => loadIndexDataset(file);
+  let downloading = null;
 
   function labels(ds) {
     const lastT = ds?.quality.lastT ?? null;
@@ -39,7 +43,8 @@ export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = (
         available: false,
         dataset: { ...DATASET, path: file },
         labels: labels(null),
-        how: `Download ${DATASET.file} once with "npm run fetch:indexes" (it saves to ${file}), then reload.`,
+        how: `Press "Download the dataset" to fetch ${DATASET.file} (about 4 MB) from Hugging Face into ${file}.`,
+        problem: datasetProblem(file),
         symbols: [],
         watchlist: watchlistHook(watchlist()),
       };
@@ -103,13 +108,26 @@ export function createNumbersApi({ dataDir, file = datasetPath(dataDir), now = (
     detail,
     history,
     /** Route one request. Returns { status, body } or throws HttpError. */
-    async handle(method, pathname, query = new URLSearchParams(), body = null) {
+    async handle(method, pathname, query = new URLSearchParams(), body = null, headers = {}) {
       const parts = pathname.replace(/^\/api\/numbers\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
       if (method === 'GET' && parts.length === 0) return { status: 200, body: overview() };
       if (method === 'POST' && parts[0] === 'watchlist' && parts[1] === 'preview' && parts.length === 2) {
         const text = body && typeof body.text === 'string' ? body.text : '';
         if (text.length > 100_000) throw new HttpError(413, 'That list is too long');
         return { status: 200, body: { ...parseTickers(text), stored: false } };
+      }
+      if (method === 'POST' && parts[0] === 'dataset' && parts[1] === 'download' && parts.length === 2) {
+        checkLocal(headers);
+        if (downloading) throw new HttpError(409, 'A download is already running');
+        downloading = downloadIndexDataset(file, fetchImpl ? { fetchImpl } : {});
+        try {
+          const got = await downloading;
+          return { status: 200, body: { ok: true, saved: got, overview: overview() } };
+        } catch (e) {
+          throw new HttpError(502, `The download failed: ${e.message}`);
+        } finally {
+          downloading = null;
+        }
       }
       if (method === 'GET' && parts.length === 1) return { status: 200, body: detail(parts[0], query.get('range') || '1Y') };
       if (method === 'GET' && parts.length === 2 && parts[1] === 'history') return { status: 200, body: history(parts[0], query.get('page'), query.get('size')) };

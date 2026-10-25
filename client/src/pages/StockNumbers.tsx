@@ -13,6 +13,22 @@ export function StockNumbers() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [dlError, setDlError] = useState('');
+
+  async function download() {
+    setDownloading(true);
+    setDlError('');
+    try {
+      const r = await api.downloadDataset();
+      setOv(r.overview);
+      setSelected((s) => s ?? r.overview.symbols.find((x) => x.symbol === '^GSPC')?.symbol ?? r.overview.symbols[0]?.symbol ?? null);
+    } catch (e) {
+      setDlError((e as Error).message);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   useEffect(() => {
     api
@@ -39,6 +55,13 @@ export function StockNumbers() {
         <div className="panel">
           <h2>No dataset yet</h2>
           <p>{ov.how}</p>
+          {ov.problem && ov.problem !== 'ENOENT' && <p className="small error">The file is there but can't be read ({ov.problem}). Downloading it again replaces it.</p>}
+          <div className="row">
+            <button onClick={download} disabled={downloading}>
+              {downloading ? 'Downloading…' : 'Download the dataset'}
+            </button>
+          </div>
+          {dlError && <p className="small error">{dlError}</p>}
         </div>
       ) : (
         <div className="numbers-grid">

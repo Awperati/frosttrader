@@ -4,6 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseIndexCsv, parseDayFirst, indexSymbol, loadIndexDataset, indexBars, isoDay } from '../server/engine/data/indexes.mjs';
@@ -219,9 +220,37 @@ test('API: says how to get the dataset when it is missing', async () => {
   const api = createNumbersApi({ file: path.join(here, 'fixtures', 'missing.csv') });
   const { body } = await api.handle('GET', '/api/numbers');
   assert.equal(body.available, false);
-  assert.match(body.how, /npm run fetch:indexes/);
+  assert.match(body.how, /Download the dataset/);
+  assert.equal(body.problem, 'ENOENT');
   assert.deepEqual(body.symbols, []);
   await assert.rejects(api.handle('GET', '/api/numbers/%5EGSPC'), (e) => e.status === 404);
+});
+
+test('API: the Download button fetches the dataset into the data folder, from this computer only', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-numbers-'));
+  const file = path.join(dir, 'datasets', 'Stock_Market_Indexes.csv');
+  const csv = fs.readFileSync(FIXTURE, 'utf8');
+  const asked = [];
+  const fetchImpl = async (url) => (asked.push(url), { ok: true, status: 200, text: async () => csv });
+  const api = createNumbersApi({ file, fetchImpl });
+  const local = { host: '127.0.0.1:8787', 'content-type': 'application/json' };
+  await assert.rejects(api.handle('POST', '/api/numbers/dataset/download', undefined, {}, { host: 'evil.example', 'content-type': 'application/json' }), (e) => e.status === 403);
+  assert.equal(fs.existsSync(file), false, 'nothing fetched for another computer');
+  const { body } = await api.handle('POST', '/api/numbers/dataset/download', undefined, {}, local);
+  assert.equal(body.ok, true);
+  assert.equal(asked.length, 1);
+  assert.match(asked[0], /^https:\/\/huggingface\.co\/datasets\/pettah\//);
+  assert.ok(body.saved.rows > 0);
+  assert.equal(body.overview.available, true);
+  assert.ok(body.overview.symbols.length > 0);
+  assert.equal(fs.readFileSync(file, 'utf8'), csv);
+  // a page that is not the CSV is refused and the saved file is kept
+  const bad = createNumbersApi({ file, fetchImpl: async () => ({ ok: true, status: 200, text: async () => '<html>sign in</html>' }) });
+  await assert.rejects(bad.handle('POST', '/api/numbers/dataset/download', undefined, {}, local), (e) => e.status === 502);
+  assert.equal(fs.readFileSync(file, 'utf8'), csv);
+  const down = createNumbersApi({ file: path.join(dir, 'other.csv'), fetchImpl: async () => ({ ok: false, status: 503, text: async () => '' }) });
+  await assert.rejects(down.handle('POST', '/api/numbers/dataset/download', undefined, {}, local), (e) => e.status === 502 && /HTTP 503/.test(e.message));
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('watchlist hook: paste and Finviz CSV export, checked and never stored', async () => {

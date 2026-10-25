@@ -25,6 +25,7 @@ export type SymbolRow = { symbol: string; name: string; hasVolume: boolean; quot
 export type Overview = {
   available: boolean;
   how?: string;
+  problem?: string;
   dataset: { title: string; url: string; licence: string; provenance: string; units: string; rows?: number; from?: string; to?: string; droppedByReason?: Record<string, number>; droppedTotal?: number };
   labels: Labels;
   ranges?: string[];
@@ -184,6 +185,7 @@ const json = (method: string, body: unknown): RequestInit => ({ method, headers:
 
 export const api = {
   overview: () => call<Overview>('/api/numbers'),
+  downloadDataset: () => call<{ ok: true; saved: { rows: number; symbols: number; from: string; to: string }; overview: Overview }>('/api/numbers/dataset/download', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   detail: (symbol: string, range: string) => call<Detail>(`/api/numbers/${sym(symbol)}?range=${encodeURIComponent(range)}`),
   history: (symbol: string, page: number, size = 25) => call<HistoryPage>(`/api/numbers/${sym(symbol)}/history?page=${page}&size=${size}`),
   previewTickers: (text: string) =>

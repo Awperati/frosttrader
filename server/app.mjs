@@ -129,7 +129,7 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     try {
       if (url.pathname === '/api/numbers' || url.pathname.startsWith('/api/numbers/')) {
         const body = req.method === 'POST' ? await readJson(req) : null;
-        const out = await numbers.handle(req.method, url.pathname, url.searchParams, body);
+        const out = await numbers.handle(req.method, url.pathname, url.searchParams, body, req.headers);
         return send(res, out.status, out.body);
       }
       if (url.pathname === '/api/finviz' || url.pathname.startsWith('/api/finviz/')) {
