@@ -3,34 +3,37 @@
 The paper agents run all day on the Pi (pihost, Debian 13, arm64, Docker), whatever the PC is doing.
 The PC app stays as it is, with its agents switched off, so only one copy trades.
 
-Status: 25 Oct 2026. Built and tested on Windows; the image is built on the Pi; **not started on the
-Pi until the owner says so**.
+Status: 25 Oct 2026. Built and tested on Windows. The code is cloned to `~/frosttrader` on the Pi.
+**Not built or started on the Pi**: Docker there needs sudo, which needs the owner's password.
+
+## Docker on the Pi needs sudo
+
+`henwy` is not in the `docker` group, so every `docker` command below needs `sudo` (the owner types
+his password). Or, once: `sudo usermod -aG docker henwy` and log in again. The `docker` group is as
+powerful as root.
 
 ## How it runs
 
 - `Dockerfile` builds the same server the Windows app runs (`server/app.mjs`), headless, on
   `node:24-alpine`. No Python, no Electron.
-- `docker-compose.pi.yml`: host network, so the server listens on the Pi's own `127.0.0.1:8787` and
+- `docker-compose.pi.yml`: host network, so the server listens on the Pi's own `127.0.0.1:8795` (8787 is taken there by another service) and
   nothing else on the network or the tailnet can reach it. Restarts by itself (`unless-stopped`).
   Data in `~/frosttrader/data` on the Pi. Memory capped at 768 MB.
 - To look at it from the PC: an SSH tunnel through Tailscale, then a browser on the PC.
 
 ## Moving it over (in this order)
 
-1. **On the PC, in FrostTrader**: wait until no agent holds a position (after the US close).
-   Settings → Paper agents → untick **Run the agents here** → Save.
-2. **Copy the data folder to the Pi** (keys, watchlist, agents' books): from the PC,
-   `scp -r "%APPDATA%\FrostTrader\data" henwy@pihost:frosttrader/` (it holds your Alpaca paper keys and
-   Finviz token; they go only to the Pi, over Tailscale).
-3. **On the Pi, turn "Run the agents here" back on** in its copy of the settings
-   (`data/agents-settings.json`, `"runHere": true`). It was copied in the off state.
-4. **Start it**: `cd ~/frosttrader && docker compose -f docker-compose.pi.yml up -d`.
-5. **Check it**: `docker logs frosttrader` shows `Frost Trader … on http://127.0.0.1:8787`.
+| # | Step | Who |
+|---|---|---|
+| 1 | In FrostTrader on the PC, when no agent holds a position: Settings → Paper agents → untick **Run the agents here** → Save | Owner |
+| 2 | Copy `%APPDATA%\FrostTrader\data` to `~/frosttrader/data` on the Pi over Tailscale SSH (it holds the Alpaca paper keys and the Finviz token; they go only to the Pi), and set `"runHere": true` in the Pi's copy of `agents-settings.json` | Claude |
+| 3 | On the Pi: `cd ~/frosttrader && sudo docker compose -f docker-compose.pi.yml up -d --build` (or give Claude Docker access once: `sudo usermod -aG docker henwy`) | Owner (sudo password) |
+| 4 | Check: `docker logs frosttrader` shows `Frost Trader … on http://127.0.0.1:8795`; the agents page answers through the tunnel | Claude |
 
 ## Looking at it from the PC
 
 ```
-ssh -N -L 8788:127.0.0.1:8787 henwy@pihost
+ssh -N -L 8788:127.0.0.1:8795 henwy@pihost
 ```
 
 Leave that running and open http://127.0.0.1:8788 in a browser. Settings work through the tunnel

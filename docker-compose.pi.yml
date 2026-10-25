@@ -1,4 +1,4 @@
-# FrostTrader on the Pi: docs/PI.md. The server listens on the Pi's 127.0.0.1:8787 only (host
+# FrostTrader on the Pi: docs/PI.md. The server listens on the Pi's 127.0.0.1:8795 only (host
 # network), so nothing on the network can reach it; view it from the PC through an SSH tunnel.
 services:
   frosttrader:
@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       - DATA_DIR=/data
-      - PORT=8787
+      - PORT=8795
       - TICKER_MIRROR=0
       - TZ=Australia/Brisbane
     volumes:

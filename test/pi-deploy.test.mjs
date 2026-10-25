@@ -20,6 +20,7 @@ test('Dockerfile and compose: the headless server, loopback only, data on a volu
   assert.match(dc, /network_mode: host/);
   assert.match(dc, /\.\/data:\/data/);
   assert.match(dc, /restart: unless-stopped/);
+  assert.match(dc, /PORT=8795/, '8787 is taken on the Pi by another service');
   assert.ok(!/ports:/.test(dc), 'no port is published');
   assert.match(read('server/app.mjs'), /export const HOST = '127\.0\.0\.1';/, 'the server listens on loopback only');
   for (const line of ['data', 'node_modules', '.env', 'stock_ohlcv']) assert.ok(read('.dockerignore').split(/\r?\n/).includes(line), `${line} stays out of the image`);
