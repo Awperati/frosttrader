@@ -548,7 +548,9 @@ export class AgentHost {
     const universe = new Set(this.getUniverse().filter((s) => STOCK.test(s)).slice(0, 40));
     const held = Object.keys(this.holders());
     const symbols = [...new Set([...universe, ...held])];
-    if (!symbols.length) {
+    // v11 agents trade the model's own 38 stocks, so they need no watchlist (no Finviz)
+    const anyV11 = this.running().some((id) => this.strategyOf(id) === 'v11');
+    if (!symbols.length && !anyV11) {
       this.state.lastError = 'The watchlist is empty: add a Finviz screener in Settings.';
       return;
     }

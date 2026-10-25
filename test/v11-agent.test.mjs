@@ -209,3 +209,20 @@ test('a real v11 agent process scores real bars as Python does and proposes the 
     child.kill();
   }
 });
+
+test('host: v11 agents trade with an empty watchlist (no Finviz needed)', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'agents-settings.json'), JSON.stringify({ ...DEFAULT_SETTINGS, strategies: { 'agent-a': 'v11', 'agent-b': 'v11', 'agent-c': 'v11', 'agent-d': 'v11' } }));
+  const data = { bars: async (symbols) => Object.fromEntries(symbols.filter((s) => s === 'FLEX').map((s) => [s, bars(T0, 60)])) };
+  const spawn = () => {
+    const p = new EventEmitter();
+    p.send = (m) => setImmediate(() => p.emit('message', { type: 'proposals', t: m.t, items: [v11buy('FLEX', 0.62)] }));
+    p.kill = () => {};
+    return p;
+  };
+  const host = new AgentHost({ dataDir: dir, getUniverse: () => [], getData: () => data, getFx: () => ({ rate: 1, date: '2026-10-21', source: 'test' }), now: () => T0, spawn, log: { warn() {} } });
+  const st = await host.tick();
+  assert.equal(st.lastError, '');
+  assert.equal(st.agents.filter((a) => a.positions.length).length, 1, 'one agent holds FLEX; the symbol lock keeps the others out');
+  host.stop();
+});
