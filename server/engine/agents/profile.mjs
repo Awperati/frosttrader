@@ -6,11 +6,12 @@
 //
 // "Medium" is a starting preset the owner chose by name; its numbers are his to change in Settings.
 // Every dollar figure is a share of the agent's allocation, so the halts scale when he raises the
-// paper money from $10 to $250.
+// paper money from $10 to $1,000.
 
 export const MAX_AGENTS = 4;
 export const AGENT_IDS = ['agent-a', 'agent-b', 'agent-c', 'agent-d'];
-export const PAPER_MONEY = { min: 5, max: 250, start: 10 }; // AUSTRALIAN dollars per agent (data/fx.mjs converts)
+// max raised from 250 to 1,000 by the owner, 25 Oct 2026: "raise the paper money cap and set each agent to A$1,000"
+export const PAPER_MONEY = { min: 5, max: 1000, start: 10 }; // AUSTRALIAN dollars per agent (data/fx.mjs converts)
 
 /** The risk preset, as shares of the agent's allocation (or counts). */
 export const MEDIUM = Object.freeze({

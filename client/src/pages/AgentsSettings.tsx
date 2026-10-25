@@ -88,7 +88,7 @@ export function AgentsCard() {
         </label>
         <label className="field">
           <span>Paper money per agent (AUD)</span>
-          <input type="number" min={5} max={250} step={5} value={s.paperPerAgent} onChange={(e) => setS({ ...s, paperPerAgent: Number(e.target.value) })} />
+          <input type="number" min={5} max={1000} step={5} value={s.paperPerAgent} onChange={(e) => setS({ ...s, paperPerAgent: Number(e.target.value) })} />
           <span className="small muted">{fx ? `≈ US$${(Math.floor(s.paperPerAgent * fx.rate * 100) / 100).toFixed(2)} at ${fx.rate} (${fx.date}, ${fx.source}). Prices are in US dollars.` : 'No AUD → USD rate yet: the agents wait for one.'}</span>
         </label>
       </div>

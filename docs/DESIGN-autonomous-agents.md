@@ -583,7 +583,7 @@ differences "By settings", halts "completely automated". What runs now (server/e
 - Up to 4 agents (Settings → Paper agents → agents at once), each a child process started with Node's
   permission model (reads only server/engine, writes nothing, no child processes, no keys in its
   environment), answering each tick with buy proposals (ipc.mjs checks every message).
-- Paper money per agent: one setting, $10 now, up to $250; a change applies at the next trading day.
+- Paper money per agent: one setting, $10 now, up to $250 (raised to A$1,000 on 25 Oct 2026); a change applies at the next trading day.
   Fractional shares (4 decimals, $1 minimum) on each agent's own SimBroker book.
 - Risk preset "Medium" (profile.mjs), all dollar figures as shares of the allocation. Gate check 17
   AGENT_CAPITAL (risk.mjs agentCapital): watchlist only, symbol lock, own cash and allocation.

@@ -64,9 +64,9 @@ test('gate check 17 (AGENT_CAPITAL): watchlist only, symbol lock, own cash and a
 });
 
 test('settings: clamped to their bounds; dollar halts scale with the paper money', () => {
-  const s = cleanSettings({ agentsAtOnce: 9, paperPerAgent: 1000, preset: { riskPerTrade: 5, drawdownPct: -1 }, params: { 'agent-a': { entryScore: 0.1, maxHold: 999 } } });
+  const s = cleanSettings({ agentsAtOnce: 9, paperPerAgent: 5000, preset: { riskPerTrade: 5, drawdownPct: -1 }, params: { 'agent-a': { entryScore: 0.1, maxHold: 999 } } });
   assert.equal(s.agentsAtOnce, 4);
-  assert.equal(s.paperPerAgent, 250);
+  assert.equal(s.paperPerAgent, 1000);
   assert.equal(s.preset.riskPerTrade, 0.01);
   assert.equal(s.preset.drawdownPct, 0.02);
   assert.equal(s.params['agent-a'].entryScore, 0.5);
