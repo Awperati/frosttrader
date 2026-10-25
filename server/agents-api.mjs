@@ -46,7 +46,9 @@ function daysBetween(from, to) {
   return out;
 }
 
+// port: the server's port, or a function returning it (the Windows app's server may get another port when 8787 is taken)
 export function createAgentsApi({ host, keys, research = null, ideas = null, connectorToken = null, port = 8787, now = Date.now }) {
+  const portNow = () => (typeof port === 'function' ? port() : port);
   const today = () => nyClock(now()).day;
   const dayParam = (q, name, fallback) => {
     const v = q.get(name);
@@ -147,7 +149,7 @@ export function createAgentsApi({ host, keys, research = null, ideas = null, con
           return { status: 200, body: await ideas.test() };
         case 'GET /api/connector':
           if (!connectorToken) throw new HttpError(404, 'Not found');
-          return { status: 200, body: { url: `http://127.0.0.1:${port}/mcp`, ...connectorToken.status() } };
+          return { status: 200, body: { url: `http://127.0.0.1:${portNow()}/mcp`, ...connectorToken.status() } };
         case 'POST /api/connector/token':
           local();
           if (!connectorToken) throw new HttpError(404, 'Not found');

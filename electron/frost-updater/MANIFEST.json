@@ -1,0 +1,15 @@
+{
+  "version": "1.2.0",
+  "files": {
+    "INTEGRATION.md": "d55482ad99bc5cbf062fad083b367022267ca58a4995e35c3247bb504c627e22",
+    "README.md": "6ea05d8dc876c6fa1857e75a3f2201101973b5fdd2449eb3980136f40dfe18d5",
+    "VERSION": "1e5b51cde515396a9fa762909cf8ca6584ccc564b325d2eebeea76175fe95c4d",
+    "boot.cjs": "d8e6b6b6c7cfd0f0fb9ca289cdf73a0785ea1473e60ef021226f00c662beaf1c",
+    "devupdate.cjs": "49c2aa4e08ecaab363a4ee631f486e6930888b4df24f2494581ac18a961c9b95",
+    "ghauth.cjs": "f73e6813c59ef989115db19140a5652c772144f00c036b5a98e0394a32d76392",
+    "manifest.mjs": "821b66bc8c21d402ea41ed674a943354b78702175eb89d317b280fe33d65b30b",
+    "smoke.mjs": "befeb2dbc37b5894da4feb92b088b3509811a7055908fec24b4de037bc0809ea",
+    "updatecheck.cjs": "3d36ef13675a381bb3c671d04f69b07a2c511365eeeb7efa79b94c5d8f750bb1",
+    "web/caps.ts": "9442459440282112ef297b419c7aff1b21c2423bdbef319636f02be3dd52309e"
+  }
+}
