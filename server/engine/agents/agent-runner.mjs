@@ -3,6 +3,7 @@
 // It gets bars over IPC each tick and answers with buy proposals from the signal pipeline and its own
 // parameters. Everything else (sizing, the gate, fills, exits, halts) is the host's.
 import { evaluateAll, SIGNALS } from '../signals/index.mjs';
+import { featuresAt, loadModel, score, tradable } from '../models/v11.mjs';
 
 const id = process.env.AGENT_ID || 'agent';
 
@@ -34,10 +35,36 @@ function propose({ t, params, bars, held }) {
   return { type: 'proposals', t, items: items.slice(0, 10), considered: considered.slice(0, 40) };
 }
 
+/**
+ * The v11 model's buys. `context` holds about two weeks of bars for the model's 38 stocks (its market
+ * features need all of them); only watchlist stocks (`bars`) that are also among the 38 can be bought.
+ */
+function proposeV11({ t, bars, context, held }) {
+  const model = loadModel();
+  const rows = featuresAt(context || {});
+  const newest = Math.max(...Object.values(rows).map((r) => r?.t ?? 0));
+  const items = [];
+  const considered = [];
+  for (const symbol of Object.keys(bars || {})) {
+    if (held?.includes(symbol) || !model.universe.includes(symbol)) continue;
+    const row = rows[symbol];
+    if (!row || row.t !== newest || !tradable(row)) {
+      considered.push({ symbol, why: 'few-bars' });
+      continue;
+    }
+    if (row.bar_of_day < model.entryBars[0] || row.bar_of_day > model.entryBars[1]) continue;
+    const p = score(model, row);
+    if (p >= model.threshold) items.push({ symbol, action: 'buy', signal: 'model_v11', score: r3(p) });
+    else considered.push({ symbol, why: 'below-entry', signal: 'model_v11', score: r3(p) });
+  }
+  items.sort((a, b) => b.score - a.score);
+  return { type: 'proposals', t, items: items.slice(0, 10), considered: considered.slice(0, 40) };
+}
+
 process.on('message', (m) => {
   if (m?.type !== 'tick') return;
   try {
-    process.send(propose(m));
+    process.send(m.strategy === 'v11' ? proposeV11(m) : propose(m));
   } catch (e) {
     process.send({ type: 'log', text: `${id}: ${e.message}` });
     process.send({ type: 'proposals', t: m.t, items: [] });

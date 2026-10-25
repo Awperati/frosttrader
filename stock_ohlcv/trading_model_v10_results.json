@@ -1,0 +1,146 @@
+{
+  "split": {
+    "train": "< 2026-10-01",
+    "validation": "2026-10-01..09",
+    "test": "2026-10-12..22"
+  },
+  "exit": {
+    "target_atr": 0.5,
+    "stop_atr": 1.0,
+    "max_hold_bars": 6,
+    "entry": "next bar open",
+    "cost_per_side": 0.0002
+  },
+  "threshold": 0.66,
+  "auc": 0.5304968397462871,
+  "validation": {
+    "trades": 138,
+    "win_rate": 0.7318840579710145,
+    "avg_bps": 0.1588445400192055,
+    "total_pct": 0.21920546522650358,
+    "profit_factor": 1.014079191136248
+  },
+  "test": {
+    "trades": 718,
+    "win_rate": 0.5793871866295265,
+    "avg_bps": -6.975478444145125,
+    "total_pct": -50.083935228962,
+    "profit_factor": 0.6002470873135595
+  },
+  "test_no_model": {
+    "trades": 7711,
+    "win_rate": 0.6048502139800286,
+    "avg_bps": -5.5603992244533,
+    "total_pct": -428.762384197594,
+    "profit_factor": 0.6036431541059764
+  },
+  "win_rate_std_error": 0.018423132281529708,
+  "all_configs": [
+    {
+      "cfg": [
+        1.0,
+        1.5,
+        12
+      ],
+      "thresh": 0.61,
+      "val": {
+        "trades": 112,
+        "win_rate": 0.6160714285714286,
+        "avg_bps": 1.7741434530070583,
+        "total_pct": 1.9870406673679053,
+        "profit_factor": 1.171292252068507
+      },
+      "base_val": {
+        "trades": 3427,
+        "win_rate": 0.5885614239859935,
+        "avg_bps": -3.758254561338058,
+        "total_pct": -128.79538381705524,
+        "profit_factor": 0.8080233821213527
+      }
+    },
+    {
+      "cfg": [
+        1.0,
+        2.0,
+        24
+      ],
+      "thresh": 0.7,
+      "val": {
+        "trades": 134,
+        "win_rate": 0.7014925373134329,
+        "avg_bps": 0.3958330236877872,
+        "total_pct": 0.5304162517416349,
+        "profit_factor": 1.0322435649237196
+      },
+      "base_val": {
+        "trades": 2599,
+        "win_rate": 0.666794921123509,
+        "avg_bps": -2.992319598001676,
+        "total_pct": -77.77038635206355,
+        "profit_factor": 0.8611728641489864
+      }
+    },
+    {
+      "cfg": [
+        0.5,
+        1.0,
+        6
+      ],
+      "thresh": 0.66,
+      "val": {
+        "trades": 138,
+        "win_rate": 0.7318840579710145,
+        "avg_bps": 0.1588445400192055,
+        "total_pct": 0.21920546522650358,
+        "profit_factor": 1.014079191136248
+      },
+      "base_val": {
+        "trades": 6013,
+        "win_rate": 0.6324629968401796,
+        "avg_bps": -4.897091718775643,
+        "total_pct": -294.4621250499794,
+        "profit_factor": 0.6138189599301216
+      }
+    }
+  ],
+  "feature_importance": {
+    "mkt_mom_12": 298,
+    "mkt_vwap": 294,
+    "bar_of_day": 246,
+    "mkt_ret": 194,
+    "gap_day": 146,
+    "daily_trend": 132,
+    "atr_pct": 121,
+    "or_pos": 106,
+    "volatility_20": 100,
+    "pdl_dist": 83,
+    "pdh_dist": 80,
+    "day_ret_atr": 76,
+    "ma_dist_50": 62,
+    "pdc_dist": 60,
+    "momentum_20": 58,
+    "vwap_dist": 57,
+    "or_width": 56,
+    "rel_mom_12": 55,
+    "hourly_trend": 55,
+    "vwap_slope": 53,
+    "vol_trend": 50,
+    "rvol_tod": 50,
+    "sess_hi_dist": 46,
+    "ema_spread": 41,
+    "momentum_10": 37,
+    "high_low_range": 34,
+    "sess_lo_dist": 33,
+    "vol_spike": 32,
+    "momentum_5": 28,
+    "ema9_dist": 25,
+    "return": 24,
+    "ma_dist": 24,
+    "ema20_slope": 24,
+    "rel_ret": 23,
+    "close_position": 21,
+    "rsi_14": 20,
+    "ema20_dist": 19,
+    "body": 17
+  }
+}

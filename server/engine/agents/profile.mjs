@@ -51,11 +51,21 @@ export const DEFAULT_PARAMS = Object.freeze({
   'agent-d': { entryScore: 0.65, stopAtr: 2, targetAtr: 2.5, maxHold: 12 },
 });
 
+/**
+ * How each agent picks its buys. "signals": the signal pipeline and the parameters above (tuned each
+ * night by research/nightly.mjs). "v11": the v11 model (server/engine/models/v11.mjs), which sets its own
+ * entry threshold and exit (a 1 % trailing stop, 20 bars at most); its parameters above are not used
+ * and the nightly test leaves it alone.
+ */
+export const STRATEGIES = Object.freeze(['signals', 'v11']);
+export const DEFAULT_STRATEGIES = Object.freeze({ 'agent-a': 'signals', 'agent-b': 'signals', 'agent-c': 'signals', 'agent-d': 'v11' });
+
 export const DEFAULT_SETTINGS = Object.freeze({
   agentsAtOnce: MAX_AGENTS,
   paperPerAgent: PAPER_MONEY.start,
   preset: MEDIUM,
   params: DEFAULT_PARAMS,
+  strategies: DEFAULT_STRATEGIES,
 });
 
 const clamp = (v, [lo, hi], fallback) => {
@@ -71,6 +81,7 @@ export function cleanSettings(input = {}, base = DEFAULT_SETTINGS) {
     paperPerAgent: Math.round(clamp(input.paperPerAgent, [PAPER_MONEY.min, PAPER_MONEY.max], base.paperPerAgent) * 100) / 100,
     preset: { name: String(input.preset?.name ?? base.preset.name).slice(0, 20) || 'Medium' },
     params: {},
+    strategies: {},
   };
   for (const [k, b] of Object.entries(PRESET_BOUNDS)) {
     const v = clamp(input.preset?.[k], b, base.preset[k]);
@@ -82,6 +93,8 @@ export function cleanSettings(input = {}, base = DEFAULT_SETTINGS) {
       const v = clamp(input.params?.[id]?.[k], b, (base.params[id] ?? DEFAULT_PARAMS[id])[k]);
       out.params[id][k] = INTEGER.has(k) ? Math.round(v) : v;
     }
+    const st = input.strategies?.[id];
+    out.strategies[id] = STRATEGIES.includes(st) ? st : (base.strategies?.[id] ?? DEFAULT_STRATEGIES[id]);
   }
   return out;
 }

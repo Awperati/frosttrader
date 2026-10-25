@@ -37,6 +37,7 @@ import { checkAgentMessage } from './ipc.mjs';
 import { AGENT_IDS, DEFAULT_SETTINGS, MAX_AGENTS, cleanSettings, limitsFor } from './profile.mjs';
 import { STOCK, agentCapital, positionSize } from '../risk.mjs';
 import { atr, nyClock, marketOpen, OPEN_MIN, CLOSE_MIN } from '../stats.mjs';
+import { loadModel } from '../models/v11.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const ENGINE_DIR = path.resolve(here, '..');
@@ -48,6 +49,8 @@ export const TIMING = Object.freeze({
   answerMs: 15_000, // an agent that hasn't answered by then is skipped this tick
   barsPerSymbol: 80, // bars sent to an agent per symbol
   historyMs: 4 * 86_400_000,
+  modelHistoryMs: 18 * 86_400_000, // v11: about two weeks of bars (relative volume looks back 10 days)
+  modelBarsKept: 1200,
 });
 export const SIT_OUT_DAYS = 2; // the halted day itself plus the next trading day
 export const CLEAN_DAYS_TO_FULL = 5;
@@ -95,6 +98,7 @@ export class AgentHost {
     this.timer = null;
     this.busy = null;
     this.barCache = {}; // symbol -> recent 5-minute bars, oldest first
+    this.modelCache = {}; // v11's 38 stocks -> about two weeks of 5-minute bars
     this.refusedAt = new Map();
     this.consideredAt = new Map();
     this.journal = new Journal({ dataDir, now });
@@ -138,6 +142,11 @@ export class AgentHost {
     return AGENT_IDS.slice(0, this.settings.agentsAtOnce).filter((id) => this.sandbox(id));
   }
 
+  /** 'signals' or 'v11' (profile.mjs STRATEGIES). */
+  strategyOf(id) {
+    return this.settings.strategies?.[id] || 'signals';
+  }
+
   /** Which agent holds each symbol (the symbol lock). */
   holders() {
     const out = {};
@@ -149,7 +158,7 @@ export class AgentHost {
 
   /** New settings from the owner. A new paper amount applies at the next trading day (when flat). */
   updateSettings(input) {
-    const merged = { ...this.settings, ...input, preset: { ...this.settings.preset, ...(input?.preset || {}) }, params: { ...this.settings.params } };
+    const merged = { ...this.settings, ...input, preset: { ...this.settings.preset, ...(input?.preset || {}) }, params: { ...this.settings.params }, strategies: { ...this.settings.strategies, ...(input?.strategies || {}) } };
     for (const id of AGENT_IDS) merged.params[id] = { ...this.settings.params[id], ...(input?.params?.[id] || {}) };
     this.settings = cleanSettings(merged, this.settings);
     writeJson(this.settingsFile, this.settings);
@@ -408,7 +417,7 @@ export class AgentHost {
       const today = sb.broker.fills.filter((f) => nyClock(f.t).day === day);
       const bySignal = {};
       for (const f of today) {
-        const m = /^entry: ([a-z_]+)/.exec(f.why || '');
+        const m = /^entry: ([a-z][a-z0-9_]*)/.exec(f.why || '');
         if (m && f.side === 'buy') (bySignal[m[1]] ??= { buys: 0 }).buys++;
       }
       const sells = today.filter((f) => f.side === 'sell');
@@ -514,8 +523,14 @@ export class AgentHost {
       const ids = this.running().filter((id) => !this.state.agents[id].dayHalt && this.state.agents[id].sitOut === 0);
       const sent = {};
       for (const s of universe) if (bars[s]?.length) sent[s] = bars[s].slice(-TIMING.barsPerSymbol);
+      const context = ids.some((id) => this.strategyOf(id) === 'v11') ? await this.fetchModelBars(data, loadModel().universe, now) : null;
       const answers = await Promise.all(
-        ids.map(async (id) => [id, await this.ask(id, { type: 'tick', t: now, params: this.settings.params[id], bars: sent, held: Object.keys(this.holders()) })]),
+        ids.map(async (id) => {
+          const strategy = this.strategyOf(id);
+          const msg = { type: 'tick', t: now, strategy, params: this.settings.params[id], bars: sent, held: Object.keys(this.holders()) };
+          if (strategy === 'v11') msg.context = context;
+          return [id, await this.ask(id, msg)];
+        }),
       );
       for (const [id, ans] of answers) {
         const items = ans?.items || [];
@@ -552,6 +567,40 @@ export class AgentHost {
     return Object.fromEntries(symbols.map((s) => [s, (this.barCache[s] || []).filter((b) => b.t + 5 * 60_000 <= now)]));
   }
 
+  /**
+   * v11's bars: about two weeks for its 38 stocks the first time, then only what is new, kept to the
+   * last TIMING.modelBarsKept per stock. Finished bars only, as in fetchBars().
+   */
+  async fetchModelBars(data, symbols, now) {
+    const fresh = symbols.filter((s) => !this.modelCache[s]?.length);
+    const known = symbols.filter((s) => this.modelCache[s]?.length);
+    const got = {};
+    const add = (more) => {
+      for (const [s, list] of Object.entries(more || {})) (got[s] ||= []).push(...list);
+    };
+    if (fresh.length) add(await data.bars(fresh, { timeframe: '5Min', start: now - TIMING.modelHistoryMs }));
+    if (known.length) add(await data.bars(known, { timeframe: '5Min', start: Math.min(...known.map((s) => this.modelCache[s].at(-1).t)) - 10 * 60_000 }));
+    for (const [s, list] of Object.entries(got)) {
+      const byT = new Map((this.modelCache[s] || []).map((b) => [b.t, b]));
+      for (const b of list) byT.set(b.t, b);
+      this.modelCache[s] = [...byT.values()].sort((a, b) => a.t - b.t).slice(-TIMING.modelBarsKept);
+    }
+    return Object.fromEntries(symbols.map((s) => [s, (this.modelCache[s] || []).filter((b) => b.t + 5 * 60_000 <= now)]));
+  }
+
+  /**
+   * v11's exit plan: no fixed stop or target. A close `trailPct` under the best close since the buy
+   * sells; trailPct is the model's distance, in ATR(14) at the buy when its exit kind is "atr".
+   */
+  trailPct(close, r) {
+    const { kind, stop } = loadModel().exit;
+    return kind === 'atr' ? (stop * r) / close : stop;
+  }
+
+  trailPlan(entry, t, signal, trailPct) {
+    return { entry, stop: entry * (1 - trailPct), target: null, trailPct, best: entry, maxHold: loadModel().exit.maxHold, held: 0, signal, entryT: t };
+  }
+
   manageExit(id, sb, symbol, list) {
     const a = this.state.agents[id];
     const pos = sb.broker.positions[symbol];
@@ -561,7 +610,7 @@ export class AgentHost {
     let plan = a.plans[symbol];
     if (!plan) {
       const r = atr(list, i) || pos.avg * 0.01;
-      plan = a.plans[symbol] = { entry: pos.avg, stop: pos.avg - params.stopAtr * r, target: pos.avg + params.targetAtr * r, held: 0, signal: 'adopted' };
+      plan = a.plans[symbol] = this.strategyOf(id) === 'v11' ? this.trailPlan(pos.avg, null, 'adopted', this.trailPct(list[i].c, r)) : { entry: pos.avg, stop: pos.avg - params.stopAtr * r, target: pos.avg + params.targetAtr * r, held: 0, signal: 'adopted' };
       // a position with no plan (a restart): only bars from now on count
       a.lastBarT[symbol] = Math.max(a.lastBarT[symbol] ?? 0, list[i].t);
     }
@@ -572,6 +621,16 @@ export class AgentHost {
       const minute = nyClock(b.t).minute;
       let why = null;
       let price = b.c;
+      if (plan.trailPct) {
+        // v11, as it was trained: a close trailPct under the best close since the buy sells at that close
+        plan.best = Math.max(plan.best ?? plan.entry, b.c);
+        plan.stop = plan.best * (1 - plan.trailPct);
+        if (b.c < plan.stop) why = 'trailing stop';
+        else if (plan.held >= plan.maxHold) why = 'time';
+        else if (minute >= CLOSE_MIN - TIMING.flattenLast) why = 'session close';
+        if (why) return this.sell(id, sb, symbol, price, b.t, why);
+        continue;
+      }
       if (b.l <= plan.stop) [why, price] = ['stop', Math.min(b.o, plan.stop)];
       else if (b.h >= plan.target) [why, price] = ['target', Math.max(b.o, plan.target)];
       else if (plan.held >= params.maxHold) why = 'time';
@@ -624,13 +683,16 @@ export class AgentHost {
     };
     if (!sb || a.dayHalt || this.state.killed) return;
     if (!universe.has(p.symbol)) return decide(false, `AGENT_CAPITAL: ${p.symbol} is not on the watchlist`);
-    if (p.score < this.settings.params[id].entryScore) return decide(false, 'score under the agent\'s entry score');
+    const v11 = this.strategyOf(id) === 'v11';
+    // a v11 agent's buys must clear the model's own threshold (scores come rounded to 3 places); its entry score is not used
+    if (v11 ? p.score < loadModel().threshold - 0.001 : p.score < this.settings.params[id].entryScore) return decide(false, v11 ? 'probability under the model\'s threshold' : 'score under the agent\'s entry score');
     if (list.length < 20) return decide(false, 'not enough bars');
     const b = list[list.length - 1];
     const r = atr(list, list.length - 1);
     if (!(r > 0)) return decide(false, 'no volatility measure (ATR)');
     const params = this.settings.params[id];
-    const stop = b.c - params.stopAtr * r;
+    const trail = v11 ? this.trailPct(b.c, r) : null;
+    const stop = v11 ? b.c * (1 - trail) : b.c - params.stopAtr * r;
     const acct = sb.broker.account();
     const qty = positionSize({ equity: acct.equity, cash: acct.cash, price: b.c, stop, limits: sb.guard.limits, fractional: true });
     if (!(qty > 0)) return decide(false, 'size rounds to nothing');
@@ -639,7 +701,7 @@ export class AgentHost {
     if (!gate.ok) return decide(false, gate.reason);
     const res = sb.submit({ ...order, why: `entry: ${p.signal} ${p.score.toFixed(2)}` });
     if (!res.ok) return decide(false, res.reason);
-    a.plans[p.symbol] = { entry: res.fill.price, stop, target: b.c + params.targetAtr * r, held: 0, signal: p.signal, entryT: b.t };
+    a.plans[p.symbol] = v11 ? { ...this.trailPlan(res.fill.price, b.t, p.signal, trail), best: b.c } : { entry: res.fill.price, stop, target: b.c + params.targetAtr * r, held: 0, signal: p.signal, entryT: b.t };
     a.lastBarT[p.symbol] = b.t;
     this.journal.decide(id, { kind: 'bought', symbol: p.symbol, qty, price: res.fill.price, rate: this.getFx()?.rate ?? null, signal: p.signal, score: p.score, stop, target: a.plans[p.symbol].target });
     decide(true, 'filled on paper', { qty, price: res.fill.price });
@@ -668,6 +730,7 @@ export class AgentHost {
         scale: a.scale,
         peak: a.peak,
         params: this.settings.params[id],
+        strategy: this.strategyOf(id),
         limits: sb?.guard.limits ?? null,
         lastProposals: a.lastProposals,
         lastDecision: a.lastDecision,
@@ -679,6 +742,7 @@ export class AgentHost {
       paperOnly: true,
       live: 'Live trading is closed: the owner has not set live limits',
       settings: this.settings,
+      models: { v11: modelInfo() },
       currency: 'Paper money is set in AUD; the books and prices are in US dollars.',
       fx: this.getFx(),
       usdPerAgent: this.usdPerAgent(),
@@ -712,6 +776,16 @@ export class AgentHost {
     clearInterval(this.timer);
     this.timer = null;
     for (const id of [...this.children.keys()]) this.stopChild(id);
+  }
+}
+
+/** What the Settings and Portfolio screens show about v11 (not its trees). */
+function modelInfo() {
+  try {
+    const m = loadModel();
+    return { threshold: m.threshold, exit: m.exit, universe: m.universe, test: m.test, testPeriod: m.testPeriod, feed: m.feed ?? null };
+  } catch (e) {
+    return { error: e.message };
   }
 }
 

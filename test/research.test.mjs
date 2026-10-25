@@ -165,7 +165,10 @@ test('a night\'s run on stored bars: windows, a result per agent, the request co
   assert.equal(out.windows, 2);
   assert.equal(out.requests, 0, 'no keys: no requests');
   assert.equal(Object.keys(out.results).length, 4);
-  for (const r of Object.values(out.results)) assert.equal(r.candidates, RULES.variants + 1);
+  for (const [id, r] of Object.entries(out.results)) {
+    if (id === 'agent-d') assert.match(r.decision, /v11/, 'the v11 agent (agent-d by default) is not tuned at night');
+    else assert.equal(r.candidates, RULES.variants + 1);
+  }
   assert.ok(host.audit.tail(5).some((e) => e.type === 'research'));
   // promotion and rollback, as the rules would do it
   const from = host.settings.params['agent-a'];
@@ -198,7 +201,8 @@ test('knowledge: another agent adopts a finding only after it passes its own re-
   const passedB = host.knowledge.validations(f.id, 'agent-b')[0].pass;
   assert.equal(research.agentState('agent-b').candidates.length, passedB ? 1 : 0);
   assert.equal(host.knowledge.validations(f.id, 'agent-a').length, 0, 'its author does not re-test its own');
-  for (const id of ['agent-b', 'agent-c', 'agent-d']) assert.equal(research.agentState(id).candidates.length, host.knowledge.validations(f.id, id)[0].pass ? 1 : 0);
+  for (const id of ['agent-b', 'agent-c']) assert.equal(research.agentState(id).candidates.length, host.knowledge.validations(f.id, id)[0].pass ? 1 : 0);
+  assert.equal(host.knowledge.validations(f.id, 'agent-d').length, 0, 'the v11 agent does not re-test signal settings');
   // a re-test that passes (forced here, the data is too small to decide): the finding becomes a
   // candidate for the next night, not a change
   host.knowledge = new KnowledgeStore({ dir: path.join(dir, 'k2') });

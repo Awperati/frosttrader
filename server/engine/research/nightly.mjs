@@ -186,11 +186,16 @@ export class Research {
     let model = { proposals: [], dropped: [] };
     if (this.ideas?.settings.enabled) {
       const stats = Object.fromEntries(AGENT_IDS.map((id) => [id, this.host.journal.stats(AGENT_IDS, { agent: id, days: 30 })]));
-      model = await this.ideas.propose(summarize({ agents: AGENT_IDS.map((id) => ({ id, params: this.host.settings.params[id], lastResult: this.agentState(id).lastResult })), stats }));
+      model = await this.ideas.propose(summarize({ agents: this.tuned().map((id) => ({ id, params: this.host.settings.params[id], lastResult: this.agentState(id).lastResult })), stats }));
+      model = { ...model, proposals: model.proposals.filter((p) => this.tuned().includes(p.agent)) }; // none for the v11 agent
       this.host.audit.write({ type: 'llm', day, proposals: model.proposals.length, dropped: model.dropped, error: model.error ?? null, promptHash: model.promptHash });
       for (const p of model.proposals) this.host.journal.decide(p.agent, { kind: 'note', text: `model's words: ${p.reason || '(no reason given)'} → testing entry ${p.params.entryScore ?? '–'}, stop ${p.params.stopAtr ?? '–'}, target ${p.params.targetAtr ?? '–'}, hold ${p.params.maxHold ?? '–'} tonight` });
     }
     for (const [n, id] of AGENT_IDS.entries()) {
+      if (!this.tuned().includes(id)) {
+        results[id] = { decision: 'runs the v11 model, which sets its own entries and exits: not tuned at night' };
+        continue;
+      }
       const allocation = this.host.sandbox(id)?.allocation ?? 10;
       const a = this.agentState(id);
       const current = this.host.settings.params[id];
@@ -256,7 +261,7 @@ export class Research {
   /** Other agents re-test each published params finding on their own replay; a pass makes it a candidate. */
   validateFindings(bars, cache, wins, day) {
     const findings = this.host.knowledge.findings().filter((f) => f.kind === 'params');
-    for (const id of AGENT_IDS) {
+    for (const id of this.tuned()) {
       const allocation = this.host.sandbox(id)?.allocation ?? 10;
       const current = this.host.settings.params[id];
       for (const f of findings) {
@@ -273,6 +278,11 @@ export class Research {
         }
       }
     }
+  }
+
+  /** The agents whose parameters the nightly test tunes: the signal agents, not the v11 model's. */
+  tuned() {
+    return AGENT_IDS.filter((id) => (this.host.strategyOf?.(id) ?? 'signals') === 'signals');
   }
 
   /** One click: back to the settings before the latest promotion of this agent. */

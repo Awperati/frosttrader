@@ -34,7 +34,7 @@ export function checkAgentMessage(m) {
         if (!p || typeof p !== 'object' || !Object.keys(p).every((k) => ['symbol', 'action', 'signal', 'score'].includes(k))) return bad('unknown proposal fields');
         if (typeof p.symbol !== 'string' || !STOCK.test(p.symbol)) return bad('bad symbol');
         if (p.action !== 'buy') return bad('only buy proposals (exits are the host\'s)');
-        if (typeof p.signal !== 'string' || !/^[a-z_]{1,32}$/.test(p.signal)) return bad('bad signal id');
+        if (typeof p.signal !== 'string' || !/^[a-z][a-z0-9_]{0,31}$/.test(p.signal)) return bad('bad signal id');
         if (!Number.isFinite(p.score) || p.score < -1 || p.score > 1) return bad('bad score');
         items.push({ symbol: p.symbol, action: 'buy', signal: p.signal, score: p.score });
       }
@@ -44,7 +44,7 @@ export function checkAgentMessage(m) {
         for (const c of m.considered) {
           if (!c || typeof c !== 'object' || !Object.keys(c).every((k) => ['symbol', 'why', 'signal', 'score'].includes(k))) return bad('unknown considered fields');
           if (typeof c.symbol !== 'string' || !STOCK.test(c.symbol) || !WHY.includes(c.why)) return bad('bad considered entry');
-          if (c.signal !== undefined && (typeof c.signal !== 'string' || !/^[a-z_]{1,32}$/.test(c.signal))) return bad('bad signal id');
+          if (c.signal !== undefined && (typeof c.signal !== 'string' || !/^[a-z][a-z0-9_]{0,31}$/.test(c.signal))) return bad('bad signal id');
           if (c.score !== undefined && (!Number.isFinite(c.score) || c.score < -1 || c.score > 1)) return bad('bad score');
           considered.push({ symbol: c.symbol, why: c.why, ...(c.signal ? { signal: c.signal } : {}), ...(c.score !== undefined ? { score: c.score } : {}) });
         }

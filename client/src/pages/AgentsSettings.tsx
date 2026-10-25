@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type AgentParams, type AgentSettings, type Preset } from '../api';
+import { api, type AgentParams, type AgentSettings, type ModelInfo, type Preset, type Strategy } from '../api';
 
 // Settings → Paper agents: how many run, the paper money each gets, the risk preset ("Medium", his
 // choice of name, numbers his to change) and each agent's own parameters. Paper only: none of these
@@ -25,16 +25,18 @@ const PARAM_FIELDS: { key: keyof AgentParams; label: string; step: number }[] = 
 export function AgentsCard() {
   const [s, setS] = useState<AgentSettings | null>(null);
   const [fx, setFx] = useState<{ rate: number; date: string; source: string } | null>(null);
+  const [v11, setV11] = useState<ModelInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   useEffect(() => {
-    api.agents().then((st) => (setS(st.settings), setFx(st.fx)), (e) => setErr((e as Error).message));
+    api.agents().then((st) => (setS(st.settings), setFx(st.fx), setV11(st.models?.v11 ?? null)), (e) => setErr((e as Error).message));
   }, []);
   if (!s) return <div className="panel">{err ? <p className="error">{err}</p> : <p className="muted">Loading…</p>}</div>;
 
   const setPreset = (k: keyof Omit<Preset, 'name'>, v: number) => setS({ ...s, preset: { ...s.preset, [k]: v } });
   const setParam = (id: string, k: keyof AgentParams, v: number) => setS({ ...s, params: { ...s.params, [id]: { ...s.params[id], [k]: v } } });
+  const setStrategy = (id: string, v: Strategy) => setS({ ...s, strategies: { ...s.strategies, [id]: v } });
 
   async function save() {
     setBusy(true);
@@ -91,11 +93,18 @@ export function AgentsCard() {
         ))}
       </div>
       <h3>Each agent's settings</h3>
+      <p className="small muted">
+        Strategy “signals” uses the numbers in its row (tuned each night). “v11 model” sets its own buys and exits: it buys when its
+        probability is at least {v11?.threshold != null ? v11.threshold.toFixed(3) : '…'}, and sells on a close {v11 ? (v11.exit.kind === 'atr' ? `${v11.exit.stop} ATR` : `${(v11.exit.stop * 100).toFixed(1)} %`) : '…'} under the best
+        close since the buy, after {v11?.exit.maxHold ?? 20} bars, or at the close. It can buy only its 38 stocks that are on your watchlist
+        {v11?.test ? `. Its test (${v11.testPeriod}): ${v11.test.trades} trades, ${(v11.test.win_rate * 100).toFixed(1)} % won, ${v11.test.avg_bps.toFixed(1)} bps a trade after costs; past results, not a forecast` : ''}.
+      </p>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Agent</th>
+              <th>Strategy</th>
               {PARAM_FIELDS.map((f) => (
                 <th key={f.key}>{f.label}</th>
               ))}
@@ -105,9 +114,15 @@ export function AgentsCard() {
             {Object.keys(s.params).map((id, i) => (
               <tr key={id} className={i < s.agentsAtOnce ? '' : 'muted'}>
                 <td>{id}</td>
+                <td>
+                  <select value={s.strategies?.[id] ?? 'signals'} onChange={(e) => setStrategy(id, e.target.value as Strategy)} aria-label={`${id} strategy`}>
+                    <option value="signals">signals</option>
+                    <option value="v11">v11 model</option>
+                  </select>
+                </td>
                 {PARAM_FIELDS.map((f) => (
                   <td key={f.key}>
-                    <input className="num" type="number" step={f.step} value={s.params[id][f.key]} onChange={(e) => setParam(id, f.key, Number(e.target.value))} aria-label={`${id} ${f.label}`} />
+                    <input className="num" type="number" step={f.step} value={s.params[id][f.key]} onChange={(e) => setParam(id, f.key, Number(e.target.value))} aria-label={`${id} ${f.label}`} disabled={s.strategies?.[id] === 'v11'} />
                   </td>
                 ))}
               </tr>

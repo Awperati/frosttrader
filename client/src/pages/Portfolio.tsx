@@ -195,7 +195,11 @@ function AgentCard({ a }: { a: AgentView }) {
         </div>
       </dl>
       <p className="small muted">
-        Entry score {a.params.entryScore} · stop {a.params.stopAtr} ATR · target {a.params.targetAtr} ATR · max hold {a.params.maxHold} bars
+        {a.strategy === 'v11' ? (
+          <>v11 model · sells on a close a set distance (ATR) under its best close, after 20 bars, or at the close</>
+        ) : (
+          <>Entry score {a.params.entryScore} · stop {a.params.stopAtr} ATR · target {a.params.targetAtr} ATR · max hold {a.params.maxHold} bars</>
+        )}
       </p>
       {a.positions.length ? (
         <div className="table-wrap">

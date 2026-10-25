@@ -93,7 +93,9 @@ export type FinvizUpdate = { urls?: string[]; intervalMin?: number; token?: stri
 
 export type Preset = { name: string; riskPerTrade: number; maxPositionPct: number; maxOpenPositions: number; maxTradesPerDay: number; dailyLossPct: number; drawdownPct: number; poolDailyLossPct: number };
 export type AgentParams = { entryScore: number; stopAtr: number; targetAtr: number; maxHold: number };
-export type AgentSettings = { agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams> };
+export type Strategy = 'signals' | 'v11';
+export type AgentSettings = { agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams>; strategies: Record<string, Strategy> };
+export type ModelInfo = { threshold: number; exit: { kind: 'pct' | 'atr'; stop: number; maxHold: number }; universe: string[]; test: { trades: number; win_rate: number; avg_bps: number } | null; testPeriod: string | null; error?: string };
 export type Fill = { t: number; symbol: string; side: 'buy' | 'sell'; qty: number; price: number; pnl: number; why: string };
 export type AgentView = {
   id: string;
@@ -104,12 +106,13 @@ export type AgentView = {
   equity: number | null;
   dayPnl: number | null;
   totalPnl: number | null;
-  positions: { symbol: string; qty: number; avg: number; price: number; plan: { stop: number; target: number; signal: string } | null }[];
+  positions: { symbol: string; qty: number; avg: number; price: number; plan: { stop: number; target: number | null; signal: string; trailPct?: number } | null }[];
   halt: { day: string; reason: string; at: number } | null;
   sitOut: number;
   scale: number;
   peak: number | null;
   params: AgentParams;
+  strategy: Strategy;
   lastProposals: { symbol: string; signal: string; score: number }[];
   lastDecision: { at: number; symbol: string; ok: boolean; reason: string } | null;
   recentFills: Fill[];
@@ -120,6 +123,7 @@ export type AgentsStatus = {
   paperOnly: true;
   live: string;
   settings: AgentSettings;
+  models?: { v11: ModelInfo };
   currency: string;
   fx: { rate: number; date: string; source: string; ageDays: number } | null;
   usdPerAgent: number | null;

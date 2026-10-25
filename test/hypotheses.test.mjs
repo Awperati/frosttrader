@@ -121,7 +121,7 @@ test('a night with the model on: its idea is one more candidate under the same r
     bars.push({ t: Date.parse(`${day}T13:30:00Z`) + k * 300000, o, h: Math.max(o, p) * 1.001, l: Math.min(o, p) * 0.999, c: p, v: 1000 });
   }
   store.write('AAA', bars);
-  const fm = await fakeModel('{"proposals":[{"agent":"agent-d","params":{"entryScore":0.9,"stopAtr":1.25},"reason":"agent-d stops too wide"}]}');
+  const fm = await fakeModel('{"proposals":[{"agent":"agent-c","params":{"entryScore":0.9,"stopAtr":1.25},"reason":"agent-c stops too wide"}]}');
   try {
     const ideas = new ModelIdeas({ dataDir: dir });
     ideas.update({ enabled: true, url: fm.url });
@@ -129,10 +129,10 @@ test('a night with the model on: its idea is one more candidate under the same r
     const before = structuredClone(host.settings);
     const out = await research.run('2026-10-21', ['AAA']);
     assert.equal(out.model.proposals, 1);
-    assert.equal(out.results['agent-d'].modelIdeas, 1);
-    assert.equal(out.results['agent-d'].candidates, 22, 'current + 20 variants + the model\'s one');
+    assert.equal(out.results['agent-c'].modelIdeas, 1);
+    assert.equal(out.results['agent-c'].candidates, 22, 'current + 20 variants + the model\'s one');
     assert.equal(out.results['agent-a'].modelIdeas, 0);
-    assert.ok(host.journal.decisions('2026-10-21', 'agent-d').some((x) => /^model's words: agent-d stops too wide/.test(x.text)));
+    assert.ok(host.journal.decisions('2026-10-21', 'agent-c').some((x) => /^model's words: agent-c stops too wide/.test(x.text)));
     assert.ok(host.audit.tail(10).some((e) => e.type === 'llm' && e.proposals === 1 && /^[0-9a-f]{64}$/.test(e.promptHash)));
     // nothing outside the parameters moved
     assert.deepEqual(host.settings.preset, before.preset);
