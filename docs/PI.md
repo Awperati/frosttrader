@@ -3,14 +3,10 @@
 The paper agents run all day on the Pi (pihost, Debian 13, arm64, Docker), whatever the PC is doing.
 The PC app stays as it is, with its agents switched off, so only one copy trades.
 
-Status: 25 Oct 2026. Built and tested on Windows. The code is cloned to `~/frosttrader` on the Pi.
-**Not built or started on the Pi**: Docker there needs sudo, which needs the owner's password.
-
-## Docker on the Pi needs sudo
-
-`henwy` is not in the `docker` group, so every `docker` command below needs `sudo` (the owner types
-his password). Or, once: `sudo usermod -aG docker henwy` and log in again. The `docker` group is as
-powerful as root.
+Status: **running on the Pi since 25 Oct 2026** (commit 2238ca8), started by Claude after the owner
+added `henwy` to the `docker` group and unticked "Run the agents here" on the PC. The PC app's
+settings file holds `"runHere": false`; the Pi's holds `true`. Docker starts at boot on the Pi, and
+the container restarts by itself.
 
 ## How it runs
 
