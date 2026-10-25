@@ -1,6 +1,8 @@
 // Small maths helpers shared by the signals, the strategy and the backtester.
 // A bar is { t (ms since 1970), o, h, l, c, v }.
 
+import { US_CLOSURES, US_EARLY_CLOSES, EARLY_CLOSE_MIN } from './usMarketCalendar.mjs';
+
 export const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
 /** Sample standard deviation (n - 1). 0 for fewer than two values. */
@@ -79,8 +81,10 @@ export function nyClock(t) {
 export const OPEN_MIN = 9 * 60 + 30; // 09:30 New York
 export const CLOSE_MIN = 16 * 60; // 16:00 New York
 
-/** True inside the regular US session (no holiday calendar: the broker refuses orders on holidays). */
+/** True inside the regular US session: weekdays that are not NYSE closures, 09:30 until 16:00 (13:00 on early-close days). */
 export function marketOpen(t) {
   const c = nyClock(t);
-  return c.weekday !== 'Sat' && c.weekday !== 'Sun' && c.minute >= OPEN_MIN && c.minute < CLOSE_MIN;
+  if (c.weekday === 'Sat' || c.weekday === 'Sun' || US_CLOSURES.has(c.day)) return false;
+  const close = US_EARLY_CLOSES.has(c.day) ? EARLY_CLOSE_MIN : CLOSE_MIN;
+  return c.minute >= OPEN_MIN && c.minute < close;
 }
