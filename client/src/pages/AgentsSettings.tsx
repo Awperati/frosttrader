@@ -59,6 +59,19 @@ export function AgentsCard() {
       <p className="small muted">Paper money only. These are not live limits, and live trading stays closed. The agents run by themselves; halts clear by themselves.</p>
       <div className="field-row">
         <label className="field">
+          <span>Orders</span>
+          <select value={s.orders ?? 'sim'} onChange={(e) => setS({ ...s, orders: e.target.value as AgentSettings['orders'] })}>
+            <option value="sim">Simulated here only</option>
+            <option value="alpaca-paper">Sent to my Alpaca paper account</option>
+          </select>
+          <span className="small muted">
+            {s.orders === 'alpaca-paper'
+              ? 'Each buy and sell also goes to your Alpaca PAPER account (play money) and is booked at its real fill. The books are checked against the account every minute; a difference stops everything until you look. Never a live account.'
+              : 'Fills are simulated on each agent’s own book. Nothing is sent to Alpaca.'}{' '}
+            Switch only while no agent holds a position.
+          </span>
+        </label>
+        <label className="field">
           <span>Agents running at once</span>
           <select value={s.agentsAtOnce} onChange={(e) => setS({ ...s, agentsAtOnce: Number(e.target.value) })}>
             {[1, 2, 3, 4].map((n) => (

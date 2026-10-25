@@ -33,9 +33,10 @@ export class SimBroker {
   }
 
   /** Fill { symbol, side, qty, price } now. Returns the fill; throws if a cash account can't do it. */
-  submit({ symbol, side, qty, price, t = Date.now(), why = '' }) {
+  submit({ symbol, side, qty, price, t = Date.now(), why = '', exact = false }) {
     if (!goodQty(qty, this.fractional)) throw new Error('Bad quantity');
-    const px = side === 'buy' ? price * (1 + this.slippage) : price * (1 - this.slippage);
+    // exact: a real fill (Alpaca paper) at its own price, so no slippage is added
+    const px = exact ? price : side === 'buy' ? price * (1 + this.slippage) : price * (1 - this.slippage);
     const pos = this.positions[symbol] || { qty: 0, avg: 0 };
     let pnl = 0;
     if (side === 'buy') {

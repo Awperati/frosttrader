@@ -25,6 +25,13 @@
 // not halts: everything is flattened and stays stopped until the owner resumes.
 //
 // Every proposal, decision, fill, halt and kill goes to the audit log (audit.mjs).
+//
+// Orders (Settings → Paper agents → Orders): "sim" fills on each agent's own book only. "alpaca-paper"
+// (stage 4) also sends each order to the owner's Alpaca PAPER account through getOrders() (an
+// injected client, broker/alpaca-paper-orders.mjs) and books Alpaca's real fill. Then every tick also
+// checks the agents' books against the account's positions: a difference is an integrity halt, which
+// cancels the app's open orders and leaves positions as they are (the books can't be trusted to sell
+// from). Live accounts are not possible here.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fork } from 'node:child_process';
@@ -82,8 +89,11 @@ export class AgentHost {
    * getFx(): today's AUD → USD rate { rate, date, source } (data/fx.mjs), or null; refreshFx() updates it.
    * spawn(id): a child process (tests can pass a fake).
    */
-  constructor({ dataDir, getUniverse = () => [], getData = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, log = console }) {
-    Object.assign(this, { dataDir, getUniverse, getData, getFx, refreshFx, onDayEnd, now, spawn, log });
+  constructor({ dataDir, getUniverse = () => [], getData = () => null, getOrders = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, log = console }) {
+    Object.assign(this, { dataDir, getUniverse, getData, getOrders, getFx, refreshFx, onDayEnd, now, spawn, log });
+    this.orders = null; // the Alpaca paper order client while settings.orders is "alpaca-paper"
+    this.inflight = new Set(); // paper orders still on their way
+    this.account = { foreign: [], checkedAt: null }; // the paper account's positions no agent owns
     this.settingsFile = path.join(dataDir, 'agents-settings.json');
     this.stateFile = path.join(dataDir, 'agents-host.json');
     this.killFile = path.join(dataDir, 'KILL');
@@ -151,13 +161,45 @@ export class AgentHost {
   holders() {
     const out = {};
     for (const [id, sb] of this.manager.sandboxes) for (const s of Object.keys(sb.broker.positions)) out[s] ??= id;
+    // with Alpaca paper orders, a stock already on the account outside the agents is locked too
+    if (this.orders) for (const s of this.account.foreign) out[s] ??= 'the paper account (not an agent)';
     return out;
+  }
+
+  /** Paper orders on their way are tracked so the tick can wait for them. */
+  track(promise) {
+    this.inflight.add(promise);
+    promise.finally(() => this.inflight.delete(promise)).catch(() => {});
+    return promise;
+  }
+
+  async settle() {
+    while (this.inflight.size) await Promise.allSettled([...this.inflight]);
+  }
+
+  /**
+   * The books against the Alpaca paper account: every symbol an agent holds must be on the account
+   * with the same quantity (the agents' quantities added up). Symbols on the account that no agent
+   * holds are listed and locked (no agent may buy them). Returns the problem, or ''.
+   */
+  async reconcileAccount() {
+    const held = await this.orders.positions();
+    const books = {};
+    for (const sb of this.manager.sandboxes.values()) for (const [s, p] of Object.entries(sb.broker.positions)) books[s] = (books[s] || 0) + p.qty;
+    for (const [s, q] of Object.entries(books)) {
+      if (Math.abs((held[s] || 0) - q) > 1e-4) return `the paper account holds ${held[s] || 0} ${s}, the agents' books ${q}`;
+    }
+    this.account = { foreign: Object.keys(held).filter((s) => !books[s] && held[s]), checkedAt: this.now() };
+    return '';
   }
 
   // ── settings, kill ─────────────────────────────────────────
 
   /** New settings from the owner. A new paper amount applies at the next trading day (when flat). */
   updateSettings(input) {
+    if (input?.orders && input.orders !== this.settings.orders && Object.keys(this.holders()).length) {
+      throw new Error('Switch where orders go only while no agent holds a position (after the close, or after flattening).');
+    }
     const merged = { ...this.settings, ...input, preset: { ...this.settings.preset, ...(input?.preset || {}) }, params: { ...this.settings.params }, strategies: { ...this.settings.strategies, ...(input?.strategies || {}) } };
     for (const id of AGENT_IDS) merged.params[id] = { ...this.settings.params[id], ...(input?.params?.[id] || {}) };
     this.settings = cleanSettings(merged, this.settings);
@@ -346,7 +388,11 @@ export class AgentHost {
   integrityHalt(reason) {
     if (this.state.integrity) return;
     this.state.integrity = { reason, at: this.now() };
-    this.flattenAll('integrity halt');
+    // with Alpaca paper orders the books may be wrong, so nothing is sold from them: open orders are
+    // cancelled and the positions stay on the account for the owner to look at
+    if (this.settings.orders === 'alpaca-paper') this.orders ||= this.getOrders();
+    if (this.orders) this.track(this.orders.cancelOpen().catch((e) => this.audit.write({ type: 'agent-log', agent: 'host', text: `cancel open orders: ${e.message}` })));
+    else this.flattenAll('integrity halt');
     for (const id of [...this.children.keys()]) this.stopChild(id);
     this.audit.write({ type: 'integrity-halt', reason });
   }
@@ -481,6 +527,11 @@ export class AgentHost {
         this.applyLimits(id);
       }
     }
+    this.orders = this.settings.orders === 'alpaca-paper' ? this.getOrders() : null;
+    if (this.settings.orders === 'alpaca-paper' && !this.orders) {
+      this.state.lastError = 'Orders are set to go to the Alpaca paper account, but no paper keys are saved: the agents wait.';
+      return;
+    }
     const data = this.getData();
     if (!data) {
       this.state.lastError = 'No Alpaca paper keys yet: the agents wait for market data (Settings → Alpaca paper keys).';
@@ -493,7 +544,7 @@ export class AgentHost {
       this.state.lastError = 'The watchlist is empty: add a Finviz screener in Settings.';
       return;
     }
-    const before = this.reconcile();
+    const before = this.reconcile() || (this.orders ? await this.reconcileAccount().catch((e) => `the paper account could not be read: ${e.message}`) : '');
     if (before) return this.integrityHalt(before);
     const bars = await this.fetchBars(data, symbols, now);
     this.state.lastError = '';
@@ -504,6 +555,7 @@ export class AgentHost {
       const a = this.state.agents[id];
       for (const [symbol, list] of Object.entries(bars)) if (list.length) sb.mark(symbol, list[list.length - 1].c);
       for (const symbol of Object.keys(sb.broker.positions)) this.manageExit(id, sb, symbol, bars[symbol] || []);
+      await this.settle();
       // halts
       const eq = sb.broker.equity();
       if (!a.dayHalt && sb.guard.watch(eq)) this.haltForDay(id, sb.guard.day.haltReason);
@@ -539,11 +591,12 @@ export class AgentHost {
         // the owner (25 Oct 2026): "let the v11 agent trade all 38 of its own stocks even if they are not on my
         // watchlist". So a v11 agent's list is the watchlist plus the model's 38; signal agents keep the watchlist.
         const allowed = this.strategyOf(id) === 'v11' ? new Set([...universe, ...loadModel().universe]) : universe;
-        for (const p of items || []) this.enter(id, p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], allowed);
+        for (const p of items || []) await this.enter(id, p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], allowed);
       }
     }
 
-    const problem = this.reconcile();
+    await this.settle();
+    const problem = this.reconcile() || (this.orders ? await this.reconcileAccount().catch((e) => `the paper account could not be read: ${e.message}`) : '');
     if (problem) this.integrityHalt(problem);
   }
 
@@ -645,12 +698,39 @@ export class AgentHost {
   }
 
   sell(id, sb, symbol, price, t, why) {
+    if (this.settings.orders === 'alpaca-paper') {
+      // also outside a tick (the kill switch before the first one): the account must sell too, or the books would drift from it
+      this.orders ||= this.getOrders();
+      if (!this.orders) return this.audit.write({ type: 'refused', agent: id, side: 'sell', symbol, why, reason: 'no paper keys: nothing was sold' });
+      return this.track(this.sellPaper(id, sb, symbol, t, why));
+    }
+    return this.bookSell(id, sb, symbol, price, t, why);
+  }
+
+  /** A sell on the Alpaca paper account, booked at its fill. Not filled: the position and its plan stay, and the next tick tries again. */
+  async sellPaper(id, sb, symbol, t, why) {
     const qty = sb.broker.positions[symbol]?.qty;
+    const key = `${id}|${symbol}|sell`;
+    if (!qty || this.selling?.has(key)) return;
+    (this.selling ||= new Set()).add(key);
+    try {
+      const r = await this.orders.submit({ agentId: id, symbol, side: 'sell', qty, key: `${key}|${t}|${qty}` });
+      if (r.filledQty > 0) this.bookSell(id, sb, symbol, r.avgPrice, t, why, { exact: true, qty: Math.min(qty, Math.floor(r.filledQty * 1e4 + 1e-6) / 1e4) });
+      else this.audit.write({ type: 'refused', agent: id, side: 'sell', symbol, qty, why, reason: `Alpaca paper did not fill it (${r.status})` });
+    } catch (e) {
+      this.audit.write({ type: 'refused', agent: id, side: 'sell', symbol, qty, why, reason: e.message });
+    } finally {
+      this.selling.delete(key);
+    }
+  }
+
+  bookSell(id, sb, symbol, price, t, why, { exact = false, qty: only = null } = {}) {
+    const qty = only ?? sb.broker.positions[symbol]?.qty;
     if (!qty) return;
     const plan = this.state.agents[id].plans[symbol];
     const avg = sb.broker.positions[symbol].avg;
-    const r = sb.submit({ symbol, side: 'sell', qty, price, t, why });
-    delete this.state.agents[id].plans[symbol];
+    const r = sb.submit({ symbol, side: 'sell', qty, price, t, why, exact });
+    if (!sb.broker.positions[symbol]) delete this.state.agents[id].plans[symbol];
     this.audit.write({ type: r.ok ? 'fill' : 'refused', agent: id, side: 'sell', symbol, qty, why, ...(r.ok ? { price: r.fill.price, pnl: r.fill.pnl } : { reason: r.reason }) });
     if (!r.ok) return;
     const rate = this.getFx()?.rate ?? null;
@@ -697,17 +777,42 @@ export class AgentHost {
     const trail = v11 ? this.trailPct(b.c, r) : null;
     const stop = v11 ? b.c * (1 - trail) : b.c - params.stopAtr * r;
     const acct = sb.broker.account();
-    const qty = positionSize({ equity: acct.equity, cash: acct.cash, price: b.c, stop, limits: sb.guard.limits, fractional: true });
+    // a real market order can fill a little above the last close: size it 1 % high so the fill always fits the cash
+    const sizePrice = this.orders ? b.c * 1.01 : b.c;
+    const qty = positionSize({ equity: acct.equity, cash: acct.cash, price: sizePrice, stop: stop * (sizePrice / b.c), limits: sb.guard.limits, fractional: true });
     if (!(qty > 0)) return decide(false, 'size rounds to nothing');
     const order = { symbol: p.symbol, side: 'buy', qty, price: b.c, t: b.t };
     const gate = agentCapital({ agentId: id, order, cash: acct.cash, exposure: sb.exposure(), allocation: sb.allocation, universe, lockedBy: this.holders()[p.symbol] ?? null });
     if (!gate.ok) return decide(false, gate.reason);
-    const res = sb.submit({ ...order, why: `entry: ${p.signal} ${p.score.toFixed(2)}` });
+    const why = `entry: ${p.signal} ${p.score.toFixed(2)}`;
+    if (this.orders) return this.track(this.buyPaper({ id, sb, a, p, b, r, order, why, stop, trail, v11, params, decide }));
+    const res = sb.submit({ ...order, why });
     if (!res.ok) return decide(false, res.reason);
+    this.booked({ id, a, p, b, r, res, qty, stop, trail, v11, params, decide });
+  }
+
+  /** A buy on the Alpaca paper account: the book's checks first, then the order, then Alpaca's fill on the book. */
+  async buyPaper({ id, sb, a, p, b, r, order, why, stop, trail, v11, params, decide }) {
+    const pre = sb.precheck(order);
+    if (!pre.ok) return decide(false, pre.reason);
+    let o;
+    try {
+      o = await this.orders.submit({ agentId: id, symbol: p.symbol, side: 'buy', qty: order.qty, key: `${id}|${p.symbol}|buy|${b.t}` });
+    } catch (e) {
+      return decide(false, `Alpaca paper: ${e.message}`);
+    }
+    const qty = Math.floor(o.filledQty * 1e4 + 1e-6) / 1e4;
+    if (!(qty > 0)) return decide(false, `Alpaca paper did not fill it (${o.status})`);
+    const res = sb.submit({ ...order, qty, price: o.avgPrice, exact: true, why: `${why} (Alpaca paper ${o.clientId})` });
+    if (!res.ok) return this.integrityHalt(`Alpaca paper filled a buy of ${qty} ${p.symbol} that ${id}'s book refused: ${res.reason}`);
+    this.booked({ id, a, p, b, r, res, qty, stop, trail, v11, params, decide });
+  }
+
+  booked({ id, a, p, b, r, res, qty, stop, trail, v11, params, decide }) {
     a.plans[p.symbol] = v11 ? { ...this.trailPlan(res.fill.price, b.t, p.signal, trail), best: b.c } : { entry: res.fill.price, stop, target: b.c + params.targetAtr * r, held: 0, signal: p.signal, entryT: b.t };
     a.lastBarT[p.symbol] = b.t;
     this.journal.decide(id, { kind: 'bought', symbol: p.symbol, qty, price: res.fill.price, rate: this.getFx()?.rate ?? null, signal: p.signal, score: p.score, stop, target: a.plans[p.symbol].target });
-    decide(true, 'filled on paper', { qty, price: res.fill.price });
+    decide(true, this.orders ? 'filled on the Alpaca paper account' : 'filled on paper', { qty, price: res.fill.price });
   }
 
   // ── status, timers ─────────────────────────────────────────
@@ -743,6 +848,8 @@ export class AgentHost {
     });
     return {
       paperOnly: true,
+      orders: this.settings.orders,
+      account: this.settings.orders === 'alpaca-paper' ? this.account : null,
       live: 'Live trading is closed: the owner has not set live limits',
       settings: this.settings,
       models: { v11: modelInfo() },

@@ -15,6 +15,7 @@ import { FinvizSource } from './engine/finviz.mjs';
 import { TickerMirror } from './engine/ticker-mirror.mjs';
 import { AgentHost } from './engine/agents/host.mjs';
 import { AlpacaKeys } from './alpaca-keys.mjs';
+import { AlpacaPaperOrders } from './engine/broker/alpaca-paper-orders.mjs';
 import { createAgentsApi } from './agents-api.mjs';
 import { FxRate } from './engine/data/fx.mjs';
 import { Research } from './engine/research/nightly.mjs';
@@ -103,7 +104,14 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   const alpacaKeys = new AlpacaKeys({ dataDir: DATA_DIR });
   // the owner sets the agents' money in AUD; the books are in US dollars at the day's ECB rate
   const fx = new FxRate({ dataDir: DATA_DIR });
-  const host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getFx: () => fx.current(), refreshFx: () => fx.refresh() });
+  // orders on his Alpaca PAPER account, only while Settings → Paper agents → Orders says so
+  let paperOrders = null;
+  const getOrders = () => {
+    if (!alpacaKeys.set) return null;
+    if (paperOrders?.keyId !== alpacaKeys.keys.keyId) paperOrders = new AlpacaPaperOrders(alpacaKeys.keys);
+    return paperOrders;
+  };
+  const host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh() });
   // the nightly research loop: after each close, walk-forward of every agent's settings (paper only)
   // his local model's research ideas (Frost AI on this computer): OFF until he switches it on in Settings
   const ideas = new ModelIdeas({ dataDir: DATA_DIR });

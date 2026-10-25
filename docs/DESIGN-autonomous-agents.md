@@ -595,3 +595,24 @@ differences "By settings", halts "completely automated". What runs now (server/e
 - Market data: Alpaca IEX bars with his paper key pair (server/alpaca-keys.mjs, write-only; a live
   "AK" key is refused). No order is ever sent to Alpaca. Live stays closed.
 - Deferred: the research loop (stage 2), adoption of findings, the live sub-ledgers and enablement.
+
+## 13. Built: stage 4, Alpaca paper orders (25 Oct 2026)
+
+The owner: "Yes, build Alpaca paper orders next (paper account only, no live trading)."
+
+- Settings → Paper agents → **Orders**: "Simulated here only" (the default) or "Sent to my Alpaca paper
+  account". It can be switched only while no agent holds a position.
+- `server/engine/broker/alpaca-paper-orders.mjs`: market orders, day only, on the paper host only. A
+  live key pair is refused, and an account whose number doesn't start "PA" is refused before any
+  order. Every order has `client_order_id = ft-<agent>-<hash>`, so a retry after a failed send looks
+  the first order up instead of sending a second. An order not filled in 10 s is cancelled.
+- The host injects the client (`getOrders`); it imports no broker. A buy passes the book's checks,
+  goes to Alpaca, and the real fill (quantity and price, no simulated slippage) is booked. Buys are
+  sized 1 % high so a fill above the last close still fits the agent's cash. Exits, halts and the
+  kill switch sell on the account too; an unfilled sell keeps the position for the next tick.
+- Every tick the agents' books are checked against the account's positions. A difference is an
+  integrity halt: the app's open orders are cancelled and nothing is sold from the books. Stocks on
+  the account that no agent owns are listed and locked.
+- Tests: `test/paper-orders.test.mjs`, against a fake Alpaca on 127.0.0.1. Not yet run against a real
+  Alpaca paper account: the response shapes follow Alpaca's v2 documentation. Fractional orders need
+  fractional trading on the paper account (Alpaca's default for new accounts, not checked here).

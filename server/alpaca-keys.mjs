@@ -1,4 +1,5 @@
-// The owner's Alpaca PAPER key pair, for market data only (server/engine/data/alpaca-data.mjs).
+// The owner's Alpaca PAPER key pair: market data (server/engine/data/alpaca-data.mjs), and paper orders
+// when Settings → Paper agents → Orders is "Alpaca paper account" (engine/broker/alpaca-paper-orders.mjs).
 // Entered in Settings, kept in DATA_DIR/alpaca-keys.json (outside git), never returned by the API and
 // never logged. A live key pair (key id starting "AK") is refused: these keys feed paper agents only.
 import fs from 'node:fs';
@@ -23,7 +24,7 @@ export class AlpacaKeys {
 
   /** What the UI may see: whether keys are saved and the last test. Never a key. */
   status() {
-    return { set: this.set, lastTest: this.lastTest, use: 'Market data only (IEX bars). No orders are ever sent to Alpaca.' };
+    return { set: this.set, lastTest: this.lastTest, use: 'Market data (IEX bars), and paper orders on your Alpaca PAPER account only if you switch them on under Paper agents. Never a live account.' };
   }
 
   /** Save { keyId, secret } (both together), or { clear: true }. */

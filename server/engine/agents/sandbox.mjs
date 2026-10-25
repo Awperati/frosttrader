@@ -83,18 +83,30 @@ export class Sandbox {
    * order; anything else in it (an agent id, an account, a limit) is ignored.
    * Returns { ok: true, fill } or { ok: false, reason }.
    */
-  submit(order) {
+  /** The checks submit() makes, without filling: { ok, reason }. Run before an order goes to Alpaca paper. */
+  precheck(order) {
     const o = { symbol: order?.symbol, side: order?.side, qty: order?.qty, price: order?.price, t: order?.t ?? Date.now() };
-    const acct = this.broker.account();
-    const verdict = this.guard.check(o, acct);
+    const verdict = this.guard.check(o, this.broker.account());
     if (!verdict.ok) return { ok: false, reason: verdict.reason };
     if (o.side === 'buy') {
       const value = o.qty * o.price * (1 + this.broker.slippage) + this.broker.commission;
       if (this.exposure() + value > this.allocation + 1e-9) return { ok: false, reason: `Over this agent's allocation ($${this.allocation})` };
     }
+    return { ok: true, reason: '' };
+  }
+
+  submit(order) {
+    const o = { symbol: order?.symbol, side: order?.side, qty: order?.qty, price: order?.price, t: order?.t ?? Date.now() };
+    // exact: a fill that already happened on Alpaca paper (checked by precheck() before it was sent);
+    // it is booked at its real price, and only the cash check below can still refuse it
+    const exact = order?.exact === true;
+    if (!exact) {
+      const verdict = this.precheck(o);
+      if (!verdict.ok) return verdict;
+    }
     let fill;
     try {
-      fill = this.broker.submit({ ...o, why: String(order?.why || '').slice(0, 200) });
+      fill = this.broker.submit({ ...o, exact, why: String(order?.why || '').slice(0, 200) });
     } catch (e) {
       return { ok: false, reason: e.message };
     }

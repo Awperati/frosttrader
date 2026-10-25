@@ -60,7 +60,15 @@ export const DEFAULT_PARAMS = Object.freeze({
 export const STRATEGIES = Object.freeze(['signals', 'v11']);
 export const DEFAULT_STRATEGIES = Object.freeze({ 'agent-a': 'signals', 'agent-b': 'signals', 'agent-c': 'signals', 'agent-d': 'v11' });
 
+/**
+ * Where the agents' orders go. "sim": each agent's own simulated book only. "alpaca-paper": also sent
+ * to the owner's Alpaca PAPER account and booked at Alpaca's fill (broker/alpaca-paper-orders.mjs).
+ * Never a live account: there is no such choice.
+ */
+export const ORDER_MODES = Object.freeze(['sim', 'alpaca-paper']);
+
 export const DEFAULT_SETTINGS = Object.freeze({
+  orders: 'sim',
   agentsAtOnce: MAX_AGENTS,
   paperPerAgent: PAPER_MONEY.start,
   preset: MEDIUM,
@@ -77,6 +85,7 @@ const INTEGER = new Set(['maxOpenPositions', 'maxTradesPerDay', 'maxHold']);
 /** Settings as saved or sent by the UI, made safe: every value inside its bounds. */
 export function cleanSettings(input = {}, base = DEFAULT_SETTINGS) {
   const out = {
+    orders: ORDER_MODES.includes(input.orders) ? input.orders : (base.orders ?? 'sim'),
     agentsAtOnce: Math.round(clamp(input.agentsAtOnce, [1, MAX_AGENTS], base.agentsAtOnce)),
     paperPerAgent: Math.round(clamp(input.paperPerAgent, [PAPER_MONEY.min, PAPER_MONEY.max], base.paperPerAgent) * 100) / 100,
     preset: { name: String(input.preset?.name ?? base.preset.name).slice(0, 20) || 'Medium' },

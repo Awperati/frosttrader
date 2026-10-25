@@ -95,7 +95,8 @@ export type FinvizUpdate = { urls?: string[]; intervalMin?: number; token?: stri
 export type Preset = { name: string; riskPerTrade: number; maxPositionPct: number; maxOpenPositions: number; maxTradesPerDay: number; dailyLossPct: number; drawdownPct: number; poolDailyLossPct: number };
 export type AgentParams = { entryScore: number; stopAtr: number; targetAtr: number; maxHold: number };
 export type Strategy = 'signals' | 'v11';
-export type AgentSettings = { agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams>; strategies: Record<string, Strategy> };
+export type OrderMode = 'sim' | 'alpaca-paper';
+export type AgentSettings = { orders: OrderMode; agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams>; strategies: Record<string, Strategy> };
 export type ModelInfo = { threshold: number; exit: { kind: 'pct' | 'atr'; stop: number; maxHold: number }; universe: string[]; test: { trades: number; win_rate: number; avg_bps: number } | null; testPeriod: string | null; error?: string };
 export type Fill = { t: number; symbol: string; side: 'buy' | 'sell'; qty: number; price: number; pnl: number; why: string };
 export type AgentView = {
@@ -124,6 +125,8 @@ export type AgentsStatus = {
   paperOnly: true;
   live: string;
   settings: AgentSettings;
+  orders?: OrderMode;
+  account?: { foreign: string[]; checkedAt: number | null } | null;
   models?: { v11: ModelInfo };
   currency: string;
   fx: { rate: number; date: string; source: string; ageDays: number } | null;
