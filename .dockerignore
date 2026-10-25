@@ -3,3 +3,11 @@ client/dist
 data
 .env
 .git
+release
+stock_ohlcv
+crypto_csv
+scratch
+test
+*.py
+*.csv
+__pycache__

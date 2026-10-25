@@ -57,6 +57,11 @@ export function AgentsCard() {
     <section className="panel finviz" aria-labelledby="agents-h">
       <h2 id="agents-h">Paper agents</h2>
       <p className="small muted">Paper money only. These are not live limits, and live trading stays closed. The agents run by themselves; halts clear by themselves.</p>
+      <label className="field check">
+        <input type="checkbox" checked={s.runHere !== false} onChange={(e) => setS({ ...s, runHere: e.target.checked })} />
+        <span>Run the agents here</span>
+        <span className="small muted">Turn this off on the PC once the agents run on the Pi, so only one copy trades. Only while no agent holds a position.</span>
+      </label>
       <div className="field-row">
         <label className="field">
           <span>Orders</span>

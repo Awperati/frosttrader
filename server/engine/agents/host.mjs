@@ -200,6 +200,9 @@ export class AgentHost {
     if (input?.orders && input.orders !== this.settings.orders && Object.keys(this.holders()).length) {
       throw new Error('Switch where orders go only while no agent holds a position (after the close, or after flattening).');
     }
+    if (input?.runHere === false && this.settings.runHere !== false && Object.keys(this.holders()).length) {
+      throw new Error('Move the agents to another computer only while no agent holds a position.');
+    }
     const merged = { ...this.settings, ...input, preset: { ...this.settings.preset, ...(input?.preset || {}) }, params: { ...this.settings.params }, strategies: { ...this.settings.strategies, ...(input?.strategies || {}) } };
     for (const id of AGENT_IDS) merged.params[id] = { ...this.settings.params[id], ...(input?.params?.[id] || {}) };
     this.settings = cleanSettings(merged, this.settings);
@@ -508,6 +511,11 @@ export class AgentHost {
     const now = this.now();
     if (fs.existsSync(this.killFile) && !this.state.killed) this.kill('KILL file found in the data folder');
     if (this.state.killed || this.state.integrity) return;
+    if (this.settings.runHere === false) {
+      for (const id of [...this.children.keys()]) this.stopChild(id);
+      this.state.lastError = 'The agents run on another computer (Settings → Paper agents → Run the agents here is off).';
+      return;
+    }
     const clock = nyClock(now);
     if (!marketOpen(now)) {
       if (this.state.day && this.state.closedDay !== this.state.day && (clock.day !== this.state.day || clock.minute >= CLOSE_MIN)) this.endDay(this.state.day);

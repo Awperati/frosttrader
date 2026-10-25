@@ -68,6 +68,9 @@ export const DEFAULT_STRATEGIES = Object.freeze({ 'agent-a': 'signals', 'agent-b
 export const ORDER_MODES = Object.freeze(['sim', 'alpaca-paper']);
 
 export const DEFAULT_SETTINGS = Object.freeze({
+  // false: the agents run on another computer (the Pi, docs/PI.md) and this copy only shows its own
+  // data. Two copies trading at once would keep two sets of books for one Alpaca account.
+  runHere: true,
   orders: 'sim',
   agentsAtOnce: MAX_AGENTS,
   paperPerAgent: PAPER_MONEY.start,
@@ -85,6 +88,7 @@ const INTEGER = new Set(['maxOpenPositions', 'maxTradesPerDay', 'maxHold']);
 /** Settings as saved or sent by the UI, made safe: every value inside its bounds. */
 export function cleanSettings(input = {}, base = DEFAULT_SETTINGS) {
   const out = {
+    runHere: typeof input.runHere === 'boolean' ? input.runHere : (base.runHere ?? true),
     orders: ORDER_MODES.includes(input.orders) ? input.orders : (base.orders ?? 'sim'),
     agentsAtOnce: Math.round(clamp(input.agentsAtOnce, [1, MAX_AGENTS], base.agentsAtOnce)),
     paperPerAgent: Math.round(clamp(input.paperPerAgent, [PAPER_MONEY.min, PAPER_MONEY.max], base.paperPerAgent) * 100) / 100,

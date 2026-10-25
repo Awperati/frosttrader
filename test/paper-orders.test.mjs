@@ -319,3 +319,17 @@ test('host: with simulated orders nothing reaches the order client', async () =>
   assert.equal(fo.sent.length, 0);
   host.stop();
 });
+
+test('host: with "Run the agents here" off this copy never trades; it can be turned off only while flat', async () => {
+  const { host } = makeHost((id, m) => (id === 'agent-a' ? [buy('AAPL')] : []), { orders: 'sim' });
+  await host.tick();
+  assert.throws(() => host.updateSettings({ runHere: false }), /only while no agent holds a position/);
+  host.stop();
+  const b = makeHost((id) => (id === 'agent-a' ? [buy('AAPL')] : []), { orders: 'sim' });
+  b.host.updateSettings({ runHere: false });
+  const st = await b.host.tick();
+  assert.match(st.lastError, /run on another computer/);
+  assert.equal(st.agents.every((a) => a.positions.length === 0), true);
+  assert.equal(b.fo.sent.length, 0);
+  b.host.stop();
+});

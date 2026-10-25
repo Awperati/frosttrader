@@ -1,0 +1,22 @@
+# FrostTrader on the Pi: docs/PI.md. The server listens on the Pi's 127.0.0.1:8787 only (host
+# network), so nothing on the network can reach it; view it from the PC through an SSH tunnel.
+services:
+  frosttrader:
+    build: .
+    image: frosttrader:local
+    container_name: frosttrader
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - DATA_DIR=/data
+      - PORT=8787
+      - TICKER_MIRROR=0
+      - TZ=Australia/Brisbane
+    volumes:
+      - ./data:/data
+    mem_limit: 768m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
