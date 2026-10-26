@@ -226,3 +226,48 @@ test('host: v11 agents trade with an empty watchlist (no Finviz needed)', async 
   assert.equal(st.agents.filter((a) => a.positions.length).length, 1, 'one agent holds FLEX; the symbol lock keeps the others out');
   host.stop();
 });
+
+function v11Host({ now, script, prices = { ADI: 250, FLEX: 60, FFIV: 460, LITE: 90 } }) {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'agents-settings.json'), JSON.stringify({ ...DEFAULT_SETTINGS, strategies: { 'agent-a': 'v11', 'agent-b': 'v11', 'agent-c': 'v11', 'agent-d': 'v11' } }));
+  const clock = { t: now };
+  const market = { prices: { ...prices }, last: {} };
+  const data = { bars: async (symbols) => Object.fromEntries(symbols.filter((s) => market.prices[s]).map((s) => [s, bars(clock.t, market.prices[s], 40, market.last[s] || {})])) };
+  const spawn = () => {
+    const p = new EventEmitter();
+    p.send = (m) => setImmediate(() => p.emit('message', { type: 'proposals', t: m.t, items: script(m) }));
+    p.kill = () => {};
+    return p;
+  };
+  const host = new AgentHost({ dataDir: dir, getUniverse: () => ['ADI'], getData: () => data, getFx: () => ({ rate: 1, date: '2026-10-21', source: 'test' }), now: () => clock.t, spawn, log: { warn() {} } });
+  return { host, clock, market };
+}
+
+test('host: v11 buys are spread across the v11 agents, each to the one with the most room', async () => {
+  // the owner (27 Oct 2026): "13. yes" — spread v11 signals across all four agents
+  const { host, clock } = v11Host({ now: T0, script: (m) => (m.t === T0 ? [v11buy('FLEX', 0.65), v11buy('ADI', 0.63), v11buy('FFIV', 0.62), v11buy('LITE', 0.6)] : m.t === T0 + 5 * MIN ? [v11buy('LITE', 0.6)] : []) });
+  const st = await host.tick();
+  assert.equal(st.lastError, '');
+  const held = Object.fromEntries(st.agents.map((a) => [a.id, a.positions.map((p) => p.symbol)]));
+  assert.deepEqual(held, { 'agent-a': ['FLEX'], 'agent-b': ['ADI'], 'agent-c': ['FFIV'], 'agent-d': ['LITE'] }, 'best score first, one stock per agent');
+  assert.ok(!host.audit.tail(40).some((e) => e.type === 'refused' && /held by agent/.test(e.reason || '')), 'nobody is refused by the lock');
+  clock.t += 5 * MIN;
+  const st2 = await host.tick();
+  assert.equal(st2.agents.reduce((n, a) => n + a.positions.length, 0), 4, 'LITE is held already: no second buy');
+  host.stop();
+});
+
+test('host: on an early-close day (27 Nov 2026, 13:00) entries stop at 12:30 and positions are sold before 13:00', async () => {
+  const at = (hhmm) => Date.parse(`2026-11-27T${hhmm}:00-05:00`);
+  const { host, clock } = v11Host({ now: at('12:00'), script: (m) => (m.t < at('12:45') ? [v11buy('FLEX', 0.65)] : [v11buy('ADI', 0.65)]) });
+  await host.tick();
+  assert.equal(host.status().agents.reduce((n, a) => n + a.positions.length, 0), 1, 'bought at 12:00');
+  clock.t = at('12:45');
+  await host.tick();
+  assert.equal(host.status().agents.reduce((n, a) => n + a.positions.length, 0), 1, 'no new buy after 12:30');
+  clock.t = at('12:56');
+  await host.tick();
+  assert.equal(host.status().agents.reduce((n, a) => n + a.positions.length, 0), 0, 'flat before the 13:00 close');
+  assert.ok(host.audit.tail(20).some((e) => e.type === 'fill' && e.side === 'sell' && e.why === 'session close'));
+  host.stop();
+});

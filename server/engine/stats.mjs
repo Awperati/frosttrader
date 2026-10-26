@@ -81,6 +81,11 @@ export function nyClock(t) {
 export const OPEN_MIN = 9 * 60 + 30; // 09:30 New York
 export const CLOSE_MIN = 16 * 60; // 16:00 New York
 
+/** The session's closing minute in New York for a day ("2026-11-27"): 13:00 on early-close days, else 16:00. */
+export function closeMinute(day) {
+  return US_EARLY_CLOSES.has(day) ? EARLY_CLOSE_MIN : CLOSE_MIN;
+}
+
 /** True inside the regular US session: weekdays that are not NYSE closures, 09:30 until 16:00 (13:00 on early-close days). */
 export function marketOpen(t) {
   const c = nyClock(t);

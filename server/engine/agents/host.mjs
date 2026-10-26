@@ -43,7 +43,7 @@ import { Journal } from './journal.mjs';
 import { checkAgentMessage } from './ipc.mjs';
 import { AGENT_IDS, DEFAULT_SETTINGS, MAX_AGENTS, cleanSettings, limitsFor } from './profile.mjs';
 import { STOCK, agentCapital, positionSize } from '../risk.mjs';
-import { atr, nyClock, marketOpen, OPEN_MIN, CLOSE_MIN } from '../stats.mjs';
+import { atr, nyClock, marketOpen, closeMinute, OPEN_MIN } from '../stats.mjs';
 import { loadModel } from '../models/v11.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -518,7 +518,7 @@ export class AgentHost {
     }
     const clock = nyClock(now);
     if (!marketOpen(now)) {
-      if (this.state.day && this.state.closedDay !== this.state.day && (clock.day !== this.state.day || clock.minute >= CLOSE_MIN)) this.endDay(this.state.day);
+      if (this.state.day && this.state.closedDay !== this.state.day && (clock.day !== this.state.day || clock.minute >= closeMinute(clock.day))) this.endDay(this.state.day);
       for (const id of [...this.children.keys()]) this.stopChild(id);
       return;
     }
@@ -580,7 +580,8 @@ export class AgentHost {
     }
 
     // entries
-    const inWindow = clock.minute >= OPEN_MIN + TIMING.noEntryFirst && clock.minute < CLOSE_MIN - TIMING.noEntryLast;
+    // early-close days (13:00) shift the last entry and the flatten time with the close
+    const inWindow = clock.minute >= OPEN_MIN + TIMING.noEntryFirst && clock.minute < closeMinute(clock.day) - TIMING.noEntryLast;
     if (inWindow && !this.state.poolPause && !this.state.paused) {
       const ids = this.running().filter((id) => !this.state.agents[id].dayHalt && this.state.agents[id].sitOut === 0);
       const sent = {};
@@ -594,14 +595,38 @@ export class AgentHost {
           return [id, await this.ask(id, msg)];
         }),
       );
+      const shared = new Map(); // v11's buys, once per symbol (every v11 agent sees the same model)
       for (const [id, ans] of answers) {
         const items = ans?.items || [];
         this.state.agents[id].lastProposals = items;
         this.logConsidered(id, ans?.considered || []);
-        // the owner (25 Oct 2026): "let the v11 agent trade all 38 of its own stocks even if they are not on my
-        // watchlist". So a v11 agent's list is the watchlist plus the model's 38; signal agents keep the watchlist.
-        const allowed = this.strategyOf(id) === 'v11' ? new Set([...universe, ...loadModel().universe]) : universe;
-        for (const p of items || []) await this.enter(id, p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], allowed);
+        if (this.strategyOf(id) === 'v11') {
+          for (const p of items) if (!shared.has(p.symbol) || shared.get(p.symbol).score < p.score) shared.set(p.symbol, p);
+          continue;
+        }
+        for (const p of items || []) await this.enter(id, p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], universe);
+      }
+      // the owner (25 Oct 2026): "let the v11 agent trade all 38 of its own stocks even if they are not on my
+      // watchlist". So a v11 agent's list is the watchlist plus the model's 38; signal agents keep the watchlist.
+      // The owner (27 Oct 2026, "13. yes"): spread v11's buys across the v11 agents. Each buy, best score first,
+      // goes to the v11 agent with the most room: fewest open positions, then the most free cash.
+      const v11ids = answers.map(([id]) => id).filter((id) => this.strategyOf(id) === 'v11');
+      if (v11ids.length) {
+        const allowed = new Set([...universe, ...loadModel().universe]);
+        for (const p of [...shared.values()].sort((x, y) => y.score - x.score)) {
+          if (this.holders()[p.symbol]) {
+            await this.enter(v11ids[0], p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], allowed); // refused by the symbol lock, and logged as such
+            continue;
+          }
+          const room = (id) => {
+            const sb = this.sandbox(id);
+            return sb ? { open: Object.keys(sb.broker.positions).length, cash: sb.broker.cash, max: sb.guard.limits.maxOpenPositions } : null;
+          };
+          const pick = v11ids
+            .filter((id) => room(id) && room(id).open < room(id).max)
+            .sort((x, y) => room(x).open - room(y).open || room(y).cash - room(x).cash)[0];
+          if (pick) await this.enter(pick, p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], allowed);
+        }
       }
     }
 
@@ -693,18 +718,19 @@ export class AgentHost {
         plan.stop = plan.best * (1 - plan.trailPct);
         if (b.c < plan.stop) why = 'trailing stop';
         else if (plan.held >= plan.maxHold) why = 'time';
-        else if (minute >= CLOSE_MIN - TIMING.flattenLast) why = 'session close';
+        else if (minute >= closeMinute(nyClock(b.t).day) - TIMING.flattenLast) why = 'session close';
         if (why) return this.sell(id, sb, symbol, price, b.t, why);
         continue;
       }
       if (b.l <= plan.stop) [why, price] = ['stop', Math.min(b.o, plan.stop)];
       else if (b.h >= plan.target) [why, price] = ['target', Math.max(b.o, plan.target)];
       else if (plan.held >= params.maxHold) why = 'time';
-      else if (minute >= CLOSE_MIN - TIMING.flattenLast) why = 'session close';
+      else if (minute >= closeMinute(nyClock(b.t).day) - TIMING.flattenLast) why = 'session close';
       if (why) return this.sell(id, sb, symbol, price, b.t, why);
     }
     // nothing new but the session is ending
-    if (nyClock(this.now()).minute >= CLOSE_MIN - TIMING.flattenLast) this.sell(id, sb, symbol, list[i].c, this.now(), 'session close');
+    const nowClock = nyClock(this.now());
+    if (nowClock.minute >= closeMinute(nowClock.day) - TIMING.flattenLast) this.sell(id, sb, symbol, list[i].c, this.now(), 'session close');
   }
 
   sell(id, sb, symbol, price, t, why) {
