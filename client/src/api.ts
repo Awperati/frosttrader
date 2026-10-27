@@ -195,12 +195,43 @@ export type LiveStatus = {
 
 export type AlpacaStatus = { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null; use: string };
 
+// The private website's session token (server/web-gate.mjs), sent as a header, never as a cookie.
+// On this computer there is none and none is needed.
+const TOKEN_KEY = 'ft-session';
+const session = {
+  get: () => {
+    try {
+      return window.sessionStorage.getItem(TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  },
+  set: (t: string | null) => {
+    try {
+      if (t) window.sessionStorage.setItem(TOKEN_KEY, t);
+      else window.sessionStorage.removeItem(TOKEN_KEY);
+    } catch {
+      /* private mode: signed in for this page only */
+    }
+  },
+};
+export const SIGN_IN_EVENT = 'ft-sign-in-required';
+
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const token = session.get();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set('authorization', `Bearer ${token}`);
+  const res = await fetch(url, { ...init, headers });
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401 && url !== '/api/auth/login') {
+    session.set(null);
+    window.dispatchEvent(new Event(SIGN_IN_EVENT));
+  }
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body as T;
 }
+
+export type AuthStatus = { website: boolean; remote: boolean; host: string | null; accessCheck: boolean; signedIn: boolean };
 
 const sym = (s: string) => encodeURIComponent(s);
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -214,6 +245,15 @@ export const api = {
     call<TickerPreview>('/api/numbers/watchlist/preview', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }),
   finviz: () => call<FinvizStatus>('/api/finviz'),
   agents: () => call<AgentsStatus>('/api/agents'),
+  authStatus: () => call<AuthStatus>('/api/auth/status'),
+  signIn: async (password: string, code: string) => {
+    const r = await call<{ token: string }>('/api/auth/login', json('POST', { password, code }));
+    session.set(r.token);
+  },
+  signOut: async () => {
+    await call<{ ok: true }>('/api/auth/logout', json('POST', {})).catch(() => {});
+    session.set(null);
+  },
   live: () => call<LiveStatus>('/api/live'),
   saveLiveKeys: (keyId: string, secret: string) => call<LiveStatus>('/api/live/keys', json('PUT', { keyId, secret })),
   testLiveKeys: () => call<LiveStatus>('/api/live/keys/test', json('POST', {})),

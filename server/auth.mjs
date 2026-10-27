@@ -223,7 +223,7 @@ export class Auth {
       this.revoke(dev.id);
       throw new HttpError(401, 'This device was signed out');
     }
-    if (now - Date.parse(dev.lastSeen) > 60_000) {
+    if (now - Date.parse(dev.lastSeen) > Math.min(60_000, (this.limits.idleMs ?? DEVICE_IDLE) / 10)) {
       dev.lastSeen = new Date(now).toISOString();
       this.save();
     }
@@ -232,7 +232,7 @@ export class Auth {
 
   expired(d, now) {
     // written as "not fresh" so a missing or broken date counts as expired
-    return !(now - Date.parse(d.lastSeen) <= DEVICE_IDLE && now - Date.parse(d.created) <= DEVICE_MAX_AGE);
+    return !(now - Date.parse(d.lastSeen) <= (this.limits.idleMs ?? DEVICE_IDLE) && now - Date.parse(d.created) <= (this.limits.maxAgeMs ?? DEVICE_MAX_AGE));
   }
 
   /** Drop expired devices. */

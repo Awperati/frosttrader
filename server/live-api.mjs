@@ -12,7 +12,7 @@
 //
 // Claude never calls these with real keys; the owner types his own.
 import { HttpError } from './store.mjs';
-import { checkLocal } from './finviz-api.mjs';
+import { checkLocal, AUTHED } from './finviz-api.mjs';
 import { LIVE_HARD, LIVE_PROPOSED, LIMIT_LABELS, cleanLiveLimits, phraseFor } from './engine/live/enablement.mjs';
 import { accountProblem } from './engine/live/desk.mjs';
 
@@ -39,6 +39,8 @@ export function createLiveApi({ desk, keys, enablement, auth = null, getFx = () 
         case 'GET /api/live':
           return { status: 200, body: status() };
         case 'PUT /api/live/keys':
+          // live keys are typed only on this computer (or through the SSH tunnel), never over the website
+          if (headers[AUTHED] === true) throw new HttpError(403, 'Save live keys from your PC through the SSH tunnel, not over the website.');
           try {
             keys.update(body || {});
           } catch (e) {

@@ -12,8 +12,18 @@ import { HttpError } from './store.mjs';
 
 const LOCAL = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
 
-/** Throw unless the request came from Frost Trader's own page on this machine. */
+/**
+ * Set (by server/web-gate.mjs) on the headers of a request from the private website whose session the
+ * owner signed in with his password and code. A Symbol: nothing sent over the network can set it.
+ */
+export const AUTHED = Symbol('frost-trader-signed-in');
+
+/** Throw unless the request came from Frost Trader's own page on this machine, or the signed-in website. */
 export function checkLocal(headers = {}) {
+  if (headers[AUTHED] === true) {
+    if (!/^application\/json\b/i.test(String(headers['content-type'] || ''))) throw new HttpError(415, 'Send JSON');
+    return;
+  }
   const host = String(headers.host || '');
   if (!LOCAL.test(host)) throw new HttpError(403, 'Settings can only be changed from this computer');
   const origin = headers.origin;

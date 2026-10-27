@@ -115,7 +115,7 @@ export function LiveCard() {
             </label>
           </div>
           <div className="row">
-            <button className="danger" onClick={() => run('enable', () => api.enableLive({ password, code, phrase, limits, confirmed }))} disabled={!!busy || !st.keys.set || confirmed.length !== keys.length || !phrase || !password}>
+            <button className="danger" onClick={() => window.confirm('Switch LIVE trading on? Agents you choose will trade with real money, inside these limits.') && run('enable', () => api.enableLive({ password, code, phrase, limits, confirmed }))} disabled={!!busy || !st.keys.set || confirmed.length !== keys.length || !phrase || !password}>
               {busy === 'enable' ? 'Checking…' : 'Switch live trading on'}
             </button>
           </div>
@@ -135,7 +135,7 @@ export function LiveCard() {
             <button onClick={() => run('lower', () => api.lowerLive(limits))} disabled={!!busy}>
               Save lower limits
             </button>
-            <button className="danger" onClick={() => run('disable', () => api.disableLive())} disabled={!!busy}>
+            <button className="danger" onClick={() => window.confirm('Switch live off? Every live position is sold now.') && run('disable', () => api.disableLive())} disabled={!!busy}>
               Switch live off (closes every live position)
             </button>
           </div>
@@ -145,7 +145,7 @@ export function LiveCard() {
             {agents
               ? Object.entries(agents).map(([id, on]) => (
                   <label key={id} className="check">
-                    <input type="checkbox" checked={on} onChange={(e) => saveAgents({ ...agents, [id]: e.target.checked })} /> {id}
+                    <input type="checkbox" checked={on} onChange={(e) => (!e.target.checked || window.confirm(`Let ${id} trade with real money?`)) && saveAgents({ ...agents, [id]: e.target.checked })} /> {id}
                   </label>
                 ))
               : null}
@@ -163,7 +163,7 @@ export function LiveCard() {
                   <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" />
                 </label>
               </div>
-              <button onClick={() => run('resume', () => api.resumeLive(password, code))} disabled={!!busy || !password}>
+              <button onClick={() => window.confirm('Resume LIVE trading after the stop? Check the reason above first.') && run('resume', () => api.resumeLive(password, code))} disabled={!!busy || !password}>
                 Resume live
               </button>
             </>

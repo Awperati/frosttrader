@@ -3,7 +3,8 @@ import { ZOOM, clampZoom, loadZoom, saveZoom, stepZoom, zoomKey } from './zoom';
 import { StockNumbers } from './pages/StockNumbers';
 import { Settings } from './pages/Settings';
 import { Portfolio } from './pages/Portfolio';
-import { api } from './api';
+import { api, SIGN_IN_EVENT, type AuthStatus } from './api';
+import { SignIn } from './pages/SignIn';
 
 // The app's screens (docs/APP-DESIGN.md). Built: Stock numbers, Paper portfolio and Settings; the
 // others are listed so the layout is settled, and say which stage brings them.
@@ -56,11 +57,49 @@ function useZoom() {
   return { zoom, setZoom };
 }
 
+/** On the private website: is a sign-in needed? On this computer never. */
+function useSignIn() {
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [needed, setNeeded] = useState(false);
+  const check = () =>
+    api.authStatus().then(
+      (a) => (setAuth(a), setNeeded(a.remote && !a.signedIn)),
+      () => setNeeded(false),
+    );
+  useEffect(() => {
+    void check();
+    const on = () => setNeeded(true);
+    window.addEventListener(SIGN_IN_EVENT, on);
+    return () => window.removeEventListener(SIGN_IN_EVENT, on);
+  }, []);
+  return { auth, needed, done: () => void check() };
+}
+
+/** Paper or LIVE, always on screen: LIVE when the owner's live switch-on is valid. */
+function useLiveBadge() {
+  const [live, setLive] = useState<{ on: boolean; stopped: boolean }>({ on: false, stopped: false });
+  useEffect(() => {
+    const read = () => api.live().then((s) => setLive({ on: s.enabled, stopped: !!s.stopped }), () => {});
+    void read();
+    const t = window.setInterval(read, 30_000);
+    return () => window.clearInterval(t);
+  }, []);
+  return live;
+}
+
 export function App() {
+  const signIn = useSignIn();
+  if (signIn.needed) return <SignIn onDone={signIn.done} />;
+  return <Main remote={!!signIn.auth?.remote} />;
+}
+
+function Main({ remote }: { remote: boolean }) {
   const [screen, setScreen] = useState<Id>('numbers');
   const { zoom, setZoom } = useZoom();
+  const live = useLiveBadge();
   async function kill() {
-    if (!window.confirm('Kill switch: sell every paper position and stop all agents until you resume?')) return;
+    const what = live.on ? 'sell every paper AND LIVE position (real money)' : 'sell every paper position';
+    if (!window.confirm(`Kill switch: ${what} and stop all agents until you resume?`)) return;
     try {
       await api.kill('Kill switch pressed');
       setScreen('portfolio');
@@ -76,7 +115,14 @@ export function App() {
           <span className="flake" aria-hidden="true">
             ❄
           </span>
-          Frost Trader <span className="stage">Stage 1 · paper only</span>
+          Frost Trader{' '}
+          {live.on ? (
+            <span className={live.stopped ? 'stage live stopped' : 'stage live'} title="Live trading is switched on (Settings → Live trading)">
+              {live.stopped ? 'LIVE · stopped' : 'LIVE · real money'}
+            </span>
+          ) : (
+            <span className="stage">PAPER · no real money</span>
+          )}
         </div>
         <nav aria-label="Screens">
           {SCREENS.map((s) => (
@@ -96,9 +142,14 @@ export function App() {
             +
           </button>
         </div>
-        <button className="kill" onClick={kill} title="Sell everything and stop every paper agent until you resume (Paper portfolio)">
+        <button className="kill" onClick={kill} title="Sell everything and stop every agent until you resume (Paper portfolio)">
           Kill switch
         </button>
+        {remote ? (
+          <button className="signout" onClick={() => api.signOut().then(() => window.location.reload())}>
+            Sign out
+          </button>
+        ) : null}
       </header>
       <main>
         {screen === 'numbers' ? (
@@ -114,7 +165,7 @@ export function App() {
           </div>
         )}
       </main>
-      <footer className="foot small muted">Paper only. Not financial advice. The agents trade paper money on simulated books; no order is sent to a broker and live trading is closed.</footer>
+      <footer className="foot small muted">{live.on ? 'LIVE trading is on for the agents you chose: real money, inside your limits.' : 'Paper only: no real money.'} Not financial advice.</footer>
     </div>
   );
 }

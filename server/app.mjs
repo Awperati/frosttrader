@@ -20,6 +20,7 @@ import { LiveKeys } from './live-keys.mjs';
 import { Enablement } from './engine/live/enablement.mjs';
 import { LiveDesk } from './engine/live/desk.mjs';
 import { createLiveApi } from './live-api.mjs';
+import { WebGate, SESSION, clientIp, isRemote, securityHeaders } from './web-gate.mjs';
 import { Auth } from './auth.mjs';
 import { createTotp } from './totp.mjs';
 import { loadModel } from './engine/models/v11.mjs';
@@ -35,8 +36,8 @@ export const DEFAULT_PORT = 8787;
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
 
-function send(res, status, body, type = 'application/json; charset=utf-8') {
-  res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+function send(res, status, body, type = 'application/json; charset=utf-8', extra = {}) {
+  res.writeHead(status, { ...securityHeaders(res.ftRemote), 'content-type': type, 'cache-control': 'no-store', ...extra });
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
 
@@ -105,7 +106,8 @@ export function ownerAuth(dataDir, env = process.env) {
   const secret = env.FROST_TRADER_TOTP_SECRET || '';
   const totp = secret ? createTotp(secret) : { enabled: false, check: () => false };
   fs.mkdirSync(path.join(dataDir, 'owner'), { recursive: true });
-  return new Auth(path.join(dataDir, 'owner'), password, totp);
+  // sessions are for the private website only: 30 minutes idle, 12 hours at most
+  return new Auth(path.join(dataDir, 'owner'), password, totp, { limits: { idleMs: SESSION.idleMs, maxAgeMs: SESSION.maxAgeMs } });
 }
 
 export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = path.join(ROOT, 'client', 'dist'), agents: runAgents = true, finviz: runFinviz = true, tickerMirror = true, log = console } = {}) {
@@ -151,6 +153,14 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   });
   host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh(), live: desk });
   const live = createLiveApi({ desk, keys: liveKeys, enablement, auth, getFx: () => fx.current() });
+  // the private website (docs/WEBSITE.md): off unless FROST_TRADER_PUBLIC_HOST is set (and his sign-in with a code)
+  const env = process.env;
+  const gate = new WebGate({
+    publicHost: env.FROST_TRADER_PUBLIC_HOST || '',
+    auth,
+    access: env.FROST_TRADER_CF_TEAM && env.FROST_TRADER_CF_AUD ? { team: env.FROST_TRADER_CF_TEAM, aud: env.FROST_TRADER_CF_AUD } : null,
+    audit: { write: (e) => host.audit.write(e) },
+  });
   // the nightly research loop: after each close, walk-forward of every agent's settings (paper only)
   // his local model's research ideas (Frost AI on this computer): OFF until he switches it on in Settings
   const ideas = new ModelIdeas({ dataDir: DATA_DIR });
@@ -168,20 +178,44 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     if (!file.startsWith(DIST + path.sep)) return send(res, 404, { error: 'Not found' });
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, 'index.html');
     if (!fs.existsSync(file)) return send(res, 503, 'The client is not built yet. Run "npm run build".', 'text/plain; charset=utf-8');
-    send(res, 200, fs.readFileSync(file), TYPES[path.extname(file)] || 'application/octet-stream');
+    send(res, 200, fs.readFileSync(file), TYPES[path.extname(file)] || 'application/octet-stream', { 'cache-control': path.basename(file) === 'index.html' ? 'no-store' : 'public, max-age=3600' });
   }
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
+    res.ftRemote = isRemote(req);
     try {
+      const { headers, device } = await gate.admit(req, url.pathname);
+      if (url.pathname === '/api/auth/status' && req.method === 'GET') return send(res, 200, { ...gate.status(req), signedIn: !!device });
+      if (url.pathname === '/api/auth/login' && req.method === 'POST') {
+        if (!res.ftRemote) throw new HttpError(400, 'Sign-in is for the website. On this computer FrostTrader needs none.');
+        const body = await readJson(req, 4 * 1024);
+        const ip = clientIp(req);
+        try {
+          const out = await auth.login(ip, { password: body?.password, code: body?.code, device: 'Website' });
+          host.audit.write({ type: 'login', ok: true, ip, device: out.deviceId });
+          return send(res, 200, { token: out.token });
+        } catch (e) {
+          host.audit.write({ type: 'login', ok: false, ip, reason: String(e.message).slice(0, 100) });
+          throw e;
+        }
+      }
+      if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
+        if (device) {
+          auth.revoke(device.id);
+          host.audit.write({ type: 'logout', device: device.id });
+        }
+        return send(res, 200, { ok: true });
+      }
+      if (res.ftRemote && device) req.ftDevice = device.id;
       if (url.pathname === '/api/numbers' || url.pathname.startsWith('/api/numbers/')) {
         const body = req.method === 'POST' ? await readJson(req) : null;
-        const out = await numbers.handle(req.method, url.pathname, url.searchParams, body, req.headers);
+        const out = await numbers.handle(req.method, url.pathname, url.searchParams, body, headers);
         return send(res, out.status, out.body);
       }
       if (url.pathname === '/api/finviz' || url.pathname.startsWith('/api/finviz/')) {
         const body = req.method === 'PUT' ? await readJson(req, 16 * 1024) : null;
-        const out = await finviz.handle(req.method, url.pathname, req.headers, body);
+        const out = await finviz.handle(req.method, url.pathname, headers, body);
         return send(res, out.status, out.body);
       }
       if (url.pathname === '/mcp') {
@@ -195,14 +229,16 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
       }
       if (url.pathname === '/api/live' || url.pathname.startsWith('/api/live/')) {
         const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 16 * 1024) : null;
-        const out = await live.handle(req.method, url.pathname, req.headers, body, req.socket.remoteAddress || '');
+        const out = await live.handle(req.method, url.pathname, headers, body, clientIp(req));
+        if (req.method !== 'GET') host.audit.write({ type: 'live-request', route: `${req.method} ${url.pathname}`, status: out.status, via: res.ftRemote ? `website ${req.ftDevice}` : 'this computer' });
         return send(res, out.status, out.body);
       }
       if (/^\/api\/(agents|alpaca|research|llm|connector)(\/|$)/.test(url.pathname)) {
         const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 32 * 1024) : null;
-        const out = await agents.handle(req.method, url.pathname, req.headers, body, url.searchParams);
+        const out = await agents.handle(req.method, url.pathname, headers, body, url.searchParams);
+        if (res.ftRemote && req.method !== 'GET') host.audit.write({ type: 'website-action', route: `${req.method} ${url.pathname}`, device: req.ftDevice });
         if (out.download) {
-          res.writeHead(out.status, { 'content-type': out.type, 'content-disposition': `attachment; filename="${out.download}"`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+          res.writeHead(out.status, { ...securityHeaders(res.ftRemote), 'content-type': out.type, 'content-disposition': `attachment; filename="${out.download}"`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
           return res.end(out.body);
         }
         return send(res, out.status, out.body);

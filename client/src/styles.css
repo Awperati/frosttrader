@@ -213,3 +213,31 @@ td.left { text-align: left; white-space: normal; }
 .button-link { display: inline-block; padding: 5px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); color: var(--text); text-decoration: none; }
 .button-link:hover { border-color: var(--accent); }
 .export .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* paper or LIVE, always visible in the header */
+.stage.live { color: #fff; background: var(--down); border-color: var(--down); font-weight: 700; }
+.stage.live.stopped { background: transparent; color: var(--down); }
+.kill { font-weight: 700; }
+.signout { background: transparent; }
+
+/* the private website's sign-in */
+.signin { display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; }
+.signin form { width: min(100%, 380px); display: flex; flex-direction: column; gap: 10px; }
+.signin h1 { font-size: 20px; margin: 0; }
+
+/* phones: the header stacks, the kill switch is big and first to reach, tables scroll sideways */
+@media (max-width: 700px) {
+  .top { gap: 8px; padding: 8px 10px; }
+  .brand { width: 100%; justify-content: space-between; }
+  .top nav { order: 3; flex: 1 1 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .panel p, .banner { overflow-wrap: anywhere; }
+  .top nav button { white-space: nowrap; }
+  .zoom { display: none; }
+  .kill { order: 2; flex: 1; min-height: 48px; font-size: 16px; }
+  .signout { order: 2; min-height: 48px; }
+  main { padding: 10px; }
+  .panel { padding: 10px; }
+  .table-wrap, table { display: block; overflow-x: auto; }
+  .field-row, .preset-grid { display: flex; flex-direction: column; }
+  input, select, button { font-size: 16px; } /* no zoom-on-focus on iPhone */
+}
