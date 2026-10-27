@@ -7,6 +7,11 @@ services:
     container_name: frosttrader
     network_mode: host
     restart: unless-stopped
+    # the owner's sign-in for switching live trading on (FROST_TRADER_PASSWORD, FROST_TRADER_TOTP_SECRET),
+    # written by scripts/pi-live-setup.sh; without it live trading can't be switched on
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATA_DIR=/data
       - PORT=8795

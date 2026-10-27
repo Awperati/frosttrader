@@ -1,3 +1,8 @@
+# Live step: superseded (27 Oct 2026)
+
+This branch's work is now built, wired and tested on master: see docs/LIVE.md. The notes below are
+kept for the record.
+
 # Live step: paused (23 Oct 2026)
 
 The owner, after his bank quoted A$30 for each USD wire to Alpaca: "Lets keep them on paper for now

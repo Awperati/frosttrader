@@ -68,7 +68,14 @@ export const DEFAULT_STRATEGIES = Object.freeze({ 'agent-a': 'signals', 'agent-b
  */
 export const ORDER_MODES = Object.freeze(['sim', 'alpaca-paper']);
 
+/**
+ * Which agents also trade LIVE (real money, through the live desk, server/engine/live/desk.mjs). All
+ * off by default; it does nothing until the owner's signed live enablement exists.
+ */
+export const DEFAULT_LIVE = Object.freeze({ 'agent-a': false, 'agent-b': false, 'agent-c': false, 'agent-d': false });
+
 export const DEFAULT_SETTINGS = Object.freeze({
+  live: DEFAULT_LIVE,
   // false: the agents run on another computer (the Pi, docs/PI.md) and this copy only shows its own
   // data. Two copies trading at once would keep two sets of books for one Alpaca account.
   runHere: true,
@@ -89,6 +96,7 @@ const INTEGER = new Set(['maxOpenPositions', 'maxTradesPerDay', 'maxHold']);
 /** Settings as saved or sent by the UI, made safe: every value inside its bounds. */
 export function cleanSettings(input = {}, base = DEFAULT_SETTINGS) {
   const out = {
+    live: {},
     runHere: typeof input.runHere === 'boolean' ? input.runHere : (base.runHere ?? true),
     orders: ORDER_MODES.includes(input.orders) ? input.orders : (base.orders ?? 'sim'),
     agentsAtOnce: Math.round(clamp(input.agentsAtOnce, [1, MAX_AGENTS], base.agentsAtOnce)),
@@ -107,6 +115,8 @@ export function cleanSettings(input = {}, base = DEFAULT_SETTINGS) {
       const v = clamp(input.params?.[id]?.[k], b, (base.params[id] ?? DEFAULT_PARAMS[id])[k]);
       out.params[id][k] = INTEGER.has(k) ? Math.round(v) : v;
     }
+    const lv = input.live?.[id];
+    out.live[id] = typeof lv === 'boolean' ? lv : (base.live?.[id] ?? false);
     const st = input.strategies?.[id];
     out.strategies[id] = STRATEGIES.includes(st) ? st : (base.strategies?.[id] ?? DEFAULT_STRATEGIES[id]);
   }

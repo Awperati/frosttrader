@@ -20,8 +20,10 @@
 //       same day), unless the owner's account shows it isn't subject to the rule
 //   L4  his limits: per order, buys and A$ bought per agent per day, A$ bought by all per day
 //   L5  halts: that agent's daily loss or drawdown sit-out; all agents' daily loss
-// Exits (stop, target, time, session close) are the desk's, as on paper. Every order carries a
-// client_order_id written down before it is sent, so a retry can't double-buy.
+// Exits (stop, target, time, session close) are the desk's, as on paper; a v11 agent's exit is v11's
+// own (a close a set ATR distance under the best close since the buy, a bar limit, the session close,
+// 13:00 on early-close days). Every order carries a client_order_id written down before it is sent,
+// so a retry can't double-buy. Only agents the owner switched to "live" (Settings) trade here.
 //
 // Halts: an agent's daily loss (back next day); its drawdown (sits out the next trading day, back at
 // half size, full after 5 clean days); all agents' daily loss (all back next day). The total drawdown,
@@ -30,7 +32,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { STOCK } from '../risk.mjs';
-import { atr, nyClock, CLOSE_MIN } from '../stats.mjs';
+import { atr, nyClock, closeMinute } from '../stats.mjs';
+import { loadModel } from '../models/v11.mjs';
 
 export const SIT_OUT_DAYS = 2;
 export const CLEAN_DAYS_TO_FULL = 5;
@@ -65,8 +68,8 @@ export class LiveDesk {
    * enablement: an Enablement. broker(): an AlpacaLive with his live keys, or null. getFx(): the rate.
    * audit: the host's AuditLog. agentIds, params(id), running(id): from the host.
    */
-  constructor({ dataDir, enablement, broker = () => null, getFx = () => null, audit, now = Date.now, params, running, log = console }) {
-    Object.assign(this, { enablement, broker, getFx, audit, now, params, running, log });
+  constructor({ dataDir, enablement, broker = () => null, getFx = () => null, audit, now = Date.now, params, running, strategy = () => 'signals', allowed = null, log = console }) {
+    Object.assign(this, { enablement, broker, getFx, audit, now, params, running, strategy, allowed, log });
     this.file = path.join(dataDir, 'live-state.json');
     this.state = { agents: {}, pending: {}, unsettled: [], dayTrades: [], seq: 0, day: null, allHalt: null, stopped: null, peakTotalAud: null, account: null, lastError: '', ...(readJson(this.file) || {}) };
   }
@@ -211,7 +214,8 @@ export class LiveDesk {
     if (!L) return no('L1', 'live is not enabled');
     if (this.state.stopped) return no('L1', `live is stopped: ${this.state.stopped.reason}`);
     if (!fx || !rateFresh(fx.date, day)) return no('L2', `no fresh AUD/USD rate (have ${fx?.date ?? 'none'}, need ${previousBusinessDay(day)} or newer)`);
-    if (!STOCK.test(p.symbol) || !universe.has(p.symbol)) return no('17', `${p.symbol} is not on the watchlist`);
+    const list17 = this.allowed ? this.allowed(id, universe) : universe;
+    if (!STOCK.test(p.symbol) || !list17.has(p.symbol)) return no('17', `${p.symbol} is not on the watchlist${this.strategy(id) === 'v11' ? ' or among the v11 model\'s stocks' : ''}`);
     for (const [other, o] of Object.entries(this.state.agents)) if (other !== id && o.positions[p.symbol]) return no('17', `${p.symbol} is held live by ${other}`);
     if (Object.values(this.state.pending).some((o) => o.symbol === p.symbol)) return no('17', `an order for ${p.symbol} is still open`);
     if (a.day?.halt) return no('L5', `halted today: ${a.day.halt}`);
@@ -222,7 +226,10 @@ export class LiveDesk {
     const r = atr(list, list.length - 1);
     if (!(r > 0)) return no('L4', 'no volatility measure (ATR)');
     const params = this.params(id);
-    const stopDist = (params.stopAtr * r) / bar.c;
+    const v11 = this.strategy(id) === 'v11';
+    const exit = v11 ? loadModel().exit : null;
+    // v11: the trailing distance at the buy, as a fraction of the price; signal agents: their ATR stop
+    const stopDist = v11 ? (exit.kind === 'atr' ? (exit.stop * r) / bar.c : exit.stop) : (params.stopAtr * r) / bar.c;
     // the agent's room in AUD: never above its cap, never raised by gains, settled money only
     const cap = L.perAgentAud;
     const room = Math.min(cap, cap + a.realizedAud) - this.exposureAud(a) - this.unsettledAud(id, day);
@@ -244,7 +251,10 @@ export class LiveDesk {
     // 19: day trades (every entry is closed by the session's end)
     const trades = Math.max(this.state.dayTrades.length, acct.daytradeCount ?? 0);
     if (trades >= DAY_TRADES_IN_5) return no('19', `${trades} day trades in the last 5 business days (the limit under US$25k is ${DAY_TRADES_IN_5})`);
-    return { ok: true, check: '', reason: '', notionalUsd, aud: notionalUsd / fx.rate, stop: bar.c - params.stopAtr * r, target: bar.c + params.targetAtr * r, price: bar.c, t: bar.t };
+    const plan = v11
+      ? { stop: bar.c * (1 - stopDist), target: null, trailPct: stopDist, best: bar.c, maxHold: exit.maxHold }
+      : { stop: bar.c - params.stopAtr * r, target: bar.c + params.targetAtr * r };
+    return { ok: true, check: '', reason: '', notionalUsd, aud: notionalUsd / fx.rate, ...plan, price: bar.c, t: bar.t };
   }
 
   async enter(b, id, p, list, universe, acct, day, fx) {
@@ -261,7 +271,7 @@ export class LiveDesk {
     this.state.pending[clientOrderId] = { agent: id, symbol: p.symbol, side: 'buy', notionalUsd: g.notionalUsd, aud: g.aud, rate: fx.rate, rateDate: fx.date, t: this.now(), day };
     a.day.buys++;
     a.day.boughtAud += g.aud;
-    a.plans[p.symbol] = { stop: g.stop, target: g.target, held: 0, signal: p.signal };
+    a.plans[p.symbol] = { stop: g.stop, target: g.target, held: 0, signal: p.signal, ...(g.trailPct ? { trailPct: g.trailPct, best: g.best, maxHold: g.maxHold } : {}) };
     a.lastBarT[p.symbol] = g.t;
     this.save();
     this.audit.write({ type: 'live-order', agent: id, side: 'buy', symbol: p.symbol, notionalUsd: g.notionalUsd, aud: Number(g.aud.toFixed(4)), rate: fx.rate, rateDate: fx.date, clientOrderId, signal: p.signal, score: p.score });
@@ -368,16 +378,30 @@ export class LiveDesk {
     if (!plan) {
       const r = atr(list, i) || list[i].c * 0.01;
       const avg = a.positions[symbol].costUsd / a.positions[symbol].qty;
-      plan = a.plans[symbol] = { stop: avg - params.stopAtr * r, target: avg + params.targetAtr * r, held: 0, signal: 'adopted' };
+      if (this.strategy(id) === 'v11') {
+        const exit = loadModel().exit;
+        const trailPct = exit.kind === 'atr' ? (exit.stop * r) / avg : exit.stop;
+        plan = a.plans[symbol] = { stop: avg * (1 - trailPct), target: null, trailPct, best: avg, maxHold: exit.maxHold, held: 0, signal: 'adopted' };
+      } else plan = a.plans[symbol] = { stop: avg - params.stopAtr * r, target: avg + params.targetAtr * r, held: 0, signal: 'adopted' };
       a.lastBarT[symbol] = list[i].t;
     }
     for (const bar of list.filter((x) => x.t > (a.lastBarT[symbol] ?? 0))) {
       a.lastBarT[symbol] = bar.t;
       plan.held++;
-      const why = bar.l <= plan.stop ? 'stop' : bar.h >= plan.target ? 'target' : plan.held >= params.maxHold ? 'time' : nyClock(bar.t).minute >= CLOSE_MIN - FLATTEN_LAST ? 'session close' : null;
+      const closing = nyClock(bar.t).minute >= closeMinute(nyClock(bar.t).day) - FLATTEN_LAST;
+      let why;
+      if (plan.trailPct) {
+        // v11, as trained: a close trailPct under the best close since the buy
+        plan.best = Math.max(plan.best ?? bar.c, bar.c);
+        plan.stop = plan.best * (1 - plan.trailPct);
+        why = bar.c < plan.stop ? 'trailing stop' : plan.held >= plan.maxHold ? 'time' : closing ? 'session close' : null;
+      } else {
+        why = bar.l <= plan.stop ? 'stop' : bar.h >= plan.target ? 'target' : plan.held >= params.maxHold ? 'time' : closing ? 'session close' : null;
+      }
       if (why) return this.sell(b, id, a, symbol, bar.c, why, fx, day);
     }
-    if (nyClock(this.now()).minute >= CLOSE_MIN - FLATTEN_LAST) return this.sell(b, id, a, symbol, list[i].c, 'session close', fx, day);
+    const nowClock = nyClock(this.now());
+    if (nowClock.minute >= closeMinute(nowClock.day) - FLATTEN_LAST) return this.sell(b, id, a, symbol, list[i].c, 'session close', fx, day);
   }
 
   async haltAgent(b, id, a, reason, fx, day) {
@@ -433,6 +457,19 @@ export class LiveDesk {
     this.state.peakTotalAud = null;
     this.audit.write({ type: 'live-resume', by: 'owner' });
     this.save();
+  }
+
+  /** Symbols held or ordered live, so the host fetches their bars for the exits. */
+  heldSymbols() {
+    const out = new Set(Object.values(this.state.pending).map((o) => o.symbol));
+    for (const a of Object.values(this.state.agents)) for (const s of Object.keys(a.positions)) out.add(s);
+    return [...out];
+  }
+
+  /** How many symbols an agent holds or is buying live (the host spreads v11's live buys by this). */
+  openCount(id) {
+    const a = this.state.agents[id];
+    return (a ? Object.keys(a.positions).length : 0) + Object.values(this.state.pending).filter((o) => o.agent === id && o.side === 'buy').length;
   }
 
   status() {

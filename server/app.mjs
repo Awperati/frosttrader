@@ -16,6 +16,13 @@ import { TickerMirror } from './engine/ticker-mirror.mjs';
 import { AgentHost } from './engine/agents/host.mjs';
 import { AlpacaKeys } from './alpaca-keys.mjs';
 import { AlpacaPaperOrders } from './engine/broker/alpaca-paper-orders.mjs';
+import { LiveKeys } from './live-keys.mjs';
+import { Enablement } from './engine/live/enablement.mjs';
+import { LiveDesk } from './engine/live/desk.mjs';
+import { createLiveApi } from './live-api.mjs';
+import { Auth } from './auth.mjs';
+import { createTotp } from './totp.mjs';
+import { loadModel } from './engine/models/v11.mjs';
 import { createAgentsApi } from './agents-api.mjs';
 import { FxRate } from './engine/data/fx.mjs';
 import { Research } from './engine/research/nightly.mjs';
@@ -87,6 +94,20 @@ export function listenOn(server, ports, host = HOST) {
  *   tickerMirror  mirror the watchlist into ~/.ticker.yaml (TICKER_MIRROR=0: off)
  * Resolves { server, port, url, dataDir, stop() }.
  */
+/**
+ * The owner's sign-in, used only as the step-up for live trading: set when the server's environment has
+ * FROST_TRADER_PASSWORD (and FROST_TRADER_TOTP_SECRET for the 6-digit code). null otherwise: live then
+ * can't be switched on.
+ */
+export function ownerAuth(dataDir, env = process.env) {
+  const password = env.FROST_TRADER_PASSWORD;
+  if (!password) return null;
+  const secret = env.FROST_TRADER_TOTP_SECRET || '';
+  const totp = secret ? createTotp(secret) : { enabled: false, check: () => false };
+  fs.mkdirSync(path.join(dataDir, 'owner'), { recursive: true });
+  return new Auth(path.join(dataDir, 'owner'), password, totp);
+}
+
 export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = path.join(ROOT, 'client', 'dist'), agents: runAgents = true, finviz: runFinviz = true, tickerMirror = true, log = console } = {}) {
   if (!dataDir) throw new Error('startServer needs a dataDir');
   const DATA_DIR = path.resolve(dataDir);
@@ -111,7 +132,25 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     if (paperOrders?.keyId !== alpacaKeys.keys.keyId) paperOrders = new AlpacaPaperOrders(alpacaKeys.keys);
     return paperOrders;
   };
-  const host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh() });
+  // LIVE (real money): off until the owner saves his live keys and signs the enablement with his
+  // password and code (Settings → Live trading); then only the agents he switches to live trade there
+  const auth = ownerAuth(DATA_DIR);
+  const liveKeys = new LiveKeys({ dataDir: DATA_DIR });
+  const enablement = new Enablement({ dataDir: DATA_DIR, keyFor: () => auth?.secretFor('live-enablement') ?? null });
+  let host = null;
+  const desk = new LiveDesk({
+    dataDir: DATA_DIR,
+    enablement,
+    broker: () => liveKeys.broker(),
+    getFx: () => fx.current(),
+    audit: { write: (e) => host.audit.write(e) }, // the host's hash-chained log (one writer)
+    params: (id) => host.settings.params[id],
+    running: (id) => host.running().includes(id) && host.settings.live?.[id] === true,
+    strategy: (id) => host.strategyOf(id),
+    allowed: (id, universe) => (host.strategyOf(id) === 'v11' ? new Set([...universe, ...loadModel().universe]) : universe),
+  });
+  host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh(), live: desk });
+  const live = createLiveApi({ desk, keys: liveKeys, enablement, auth, getFx: () => fx.current() });
   // the nightly research loop: after each close, walk-forward of every agent's settings (paper only)
   // his local model's research ideas (Frost AI on this computer): OFF until he switches it on in Settings
   const ideas = new ModelIdeas({ dataDir: DATA_DIR });
@@ -152,6 +191,11 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
           res.writeHead(out.status, { 'cache-control': 'no-store' });
           return res.end();
         }
+        return send(res, out.status, out.body);
+      }
+      if (url.pathname === '/api/live' || url.pathname.startsWith('/api/live/')) {
+        const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 16 * 1024) : null;
+        const out = await live.handle(req.method, url.pathname, req.headers, body, req.socket.remoteAddress || '');
         return send(res, out.status, out.body);
       }
       if (/^\/api\/(agents|alpaca|research|llm|connector)(\/|$)/.test(url.pathname)) {

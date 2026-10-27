@@ -89,8 +89,9 @@ export class AgentHost {
    * getFx(): today's AUD → USD rate { rate, date, source } (data/fx.mjs), or null; refreshFx() updates it.
    * spawn(id): a child process (tests can pass a fake).
    */
-  constructor({ dataDir, getUniverse = () => [], getData = () => null, getOrders = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, log = console }) {
+  constructor({ dataDir, getUniverse = () => [], getData = () => null, getOrders = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, live = null, log = console }) {
     Object.assign(this, { dataDir, getUniverse, getData, getOrders, getFx, refreshFx, onDayEnd, now, spawn, log });
+    this.live = live; // the live desk (REAL money), or null; it trades only after the owner's signed enablement
     this.orders = null; // the Alpaca paper order client while settings.orders is "alpaca-paper"
     this.inflight = new Set(); // paper orders still on their way
     this.account = { foreign: [], checkedAt: null }; // the paper account's positions no agent owns
@@ -200,10 +201,13 @@ export class AgentHost {
     if (input?.orders && input.orders !== this.settings.orders && Object.keys(this.holders()).length) {
       throw new Error('Switch where orders go only while no agent holds a position (after the close, or after flattening).');
     }
+    if (input?.live && Object.entries(input.live).some(([id, on]) => on === true && this.settings.live?.[id] !== true) && !this.live?.enabled()) {
+      throw new Error('Switch live trading on first (Settings → Live trading), then choose which agents trade live.');
+    }
     if (input?.runHere === false && this.settings.runHere !== false && Object.keys(this.holders()).length) {
       throw new Error('Move the agents to another computer only while no agent holds a position.');
     }
-    const merged = { ...this.settings, ...input, preset: { ...this.settings.preset, ...(input?.preset || {}) }, params: { ...this.settings.params }, strategies: { ...this.settings.strategies, ...(input?.strategies || {}) } };
+    const merged = { ...this.settings, ...input, preset: { ...this.settings.preset, ...(input?.preset || {}) }, params: { ...this.settings.params }, strategies: { ...this.settings.strategies, ...(input?.strategies || {}) }, live: { ...this.settings.live, ...(input?.live || {}) } };
     for (const id of AGENT_IDS) merged.params[id] = { ...this.settings.params[id], ...(input?.params?.[id] || {}) };
     this.settings = cleanSettings(merged, this.settings);
     writeJson(this.settingsFile, this.settings);
@@ -225,6 +229,8 @@ export class AgentHost {
       this.state.killReason = reason;
       this.state.killedAt = this.now();
       this.flattenAll('kill switch');
+      // live: cancel and close everything on the real account, and stay stopped until the owner resumes live
+      if (this.live) this.track(this.live.stopAll(`kill switch: ${reason}`).catch(() => {}));
       for (const id of [...this.children.keys()]) this.stopChild(id);
       this.audit.write({ type: 'kill', reason });
       this.save();
@@ -547,7 +553,7 @@ export class AgentHost {
     }
     const universe = new Set(this.getUniverse().filter((s) => STOCK.test(s)).slice(0, 40));
     const held = Object.keys(this.holders());
-    const symbols = [...new Set([...universe, ...held])];
+    const symbols = [...new Set([...universe, ...held, ...(this.live ? this.live.heldSymbols() : [])])];
     // v11 agents trade the model's own 38 stocks, so they need no watchlist (no Finviz)
     const anyV11 = this.running().some((id) => this.strategyOf(id) === 'v11');
     if (!symbols.length && !anyV11) {
@@ -582,6 +588,9 @@ export class AgentHost {
     // entries
     // early-close days (13:00) shift the last entry and the flatten time with the close
     const inWindow = clock.minute >= OPEN_MIN + TIMING.noEntryFirst && clock.minute < closeMinute(clock.day) - TIMING.noEntryLast;
+    const liveIds = this.running().filter((id) => this.settings.live?.[id] === true);
+    const liveProposals = [];
+    let liveBars = bars;
     if (inWindow && !this.state.poolPause && !this.state.paused) {
       const ids = this.running().filter((id) => !this.state.agents[id].dayHalt && this.state.agents[id].sitOut === 0);
       const sent = {};
@@ -604,6 +613,7 @@ export class AgentHost {
           for (const p of items) if (!shared.has(p.symbol) || shared.get(p.symbol).score < p.score) shared.set(p.symbol, p);
           continue;
         }
+        if (liveIds.includes(id)) liveProposals.push([id, items]);
         for (const p of items || []) await this.enter(id, p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], universe);
       }
       // the owner (25 Oct 2026): "let the v11 agent trade all 38 of its own stocks even if they are not on my
@@ -628,6 +638,26 @@ export class AgentHost {
           if (pick) await this.enter(pick, p, bars[p.symbol]?.length ? bars[p.symbol] : context?.[p.symbol] || [], allowed);
         }
       }
+      // live: the same v11 buys, spread over the live v11 agents by what each holds live
+      const liveV11 = liveIds.filter((id) => this.strategyOf(id) === 'v11');
+      if (this.live && liveV11.length) {
+        const mine = Object.fromEntries(liveV11.map((id) => [id, []]));
+        const load = Object.fromEntries(liveV11.map((id) => [id, this.live.openCount(id)]));
+        for (const p of [...shared.values()].sort((x, y) => y.score - x.score)) {
+          const pick = [...liveV11].sort((x, y) => load[x] - load[y])[0];
+          mine[pick].push(p);
+          load[pick]++;
+        }
+        for (const id of liveV11) liveProposals.push([id, mine[id]]);
+      }
+      if (context) liveBars = { ...context, ...bars };
+    }
+
+    // live (REAL money): exits and halts every market tick; buys only in the entry window, only for the
+    // agents switched to live, and only while the owner's signed enablement is valid (the desk checks)
+    if (this.live) {
+      await this.settle();
+      await this.live.tick({ now, bars: liveBars, universe, proposals: liveProposals, inWindow: inWindow && !this.state.poolPause && !this.state.paused });
     }
 
     await this.settle();
@@ -886,7 +916,7 @@ export class AgentHost {
       paperOnly: true,
       orders: this.settings.orders,
       account: this.settings.orders === 'alpaca-paper' ? this.account : null,
-      live: 'Live trading is closed: the owner has not set live limits',
+      live: this.live ? this.live.status() : { enabled: false, note: 'Live trading is closed: the owner has not set live limits' },
       settings: this.settings,
       models: { v11: modelInfo() },
       currency: 'Paper money is set in AUD; the books and prices are in US dollars.',

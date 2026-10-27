@@ -49,7 +49,7 @@ export function Portfolio() {
   return (
     <div className="portfolio">
       <div className={`banner ${stopped ? 'banner-bad' : ''}`}>
-        <b>Paper money only.</b> {st.live}. {st.agents.filter((a) => a.running).length} of 4 agents set to run, A${num(st.settings.paperPerAgent)} each{st.usdPerAgent != null && st.fx ? ` (≈ US$${num(st.usdPerAgent)} at ${st.fx.rate} on ${st.fx.date}, ${st.fx.source})` : ' (no AUD → USD rate yet)'}.
+        {st.live?.enabled ? <b className="error">Live trading is ON for the agents you switched to live (Settings → Live trading).</b> : <b>Paper money only.</b>} {st.live?.enabled ? '' : st.live?.note ?? ''}. {st.agents.filter((a) => a.running).length} of 4 agents set to run, A${num(st.settings.paperPerAgent)} each{st.usdPerAgent != null && st.fx ? ` (≈ US$${num(st.usdPerAgent)} at ${st.fx.rate} on ${st.fx.date}, ${st.fx.source})` : ' (no AUD → USD rate yet)'}.
         <span className="sep">·</span>
         {st.marketOpen ? 'US market open' : 'US market closed'}
         <span className="sep">·</span>

@@ -96,7 +96,7 @@ export type Preset = { name: string; riskPerTrade: number; maxPositionPct: numbe
 export type AgentParams = { entryScore: number; stopAtr: number; targetAtr: number; maxHold: number };
 export type Strategy = 'signals' | 'v11';
 export type OrderMode = 'sim' | 'alpaca-paper';
-export type AgentSettings = { runHere: boolean; orders: OrderMode; agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams>; strategies: Record<string, Strategy> };
+export type AgentSettings = { live?: Record<string, boolean>; runHere: boolean; orders: OrderMode; agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams>; strategies: Record<string, Strategy> };
 export type ModelInfo = { threshold: number; exit: { kind: 'pct' | 'atr'; stop: number; maxHold: number }; universe: string[]; test: { trades: number; win_rate: number; avg_bps: number } | null; testPeriod: string | null; error?: string };
 export type Fill = { t: number; symbol: string; side: 'buy' | 'sell'; qty: number; price: number; pnl: number; why: string };
 export type AgentView = {
@@ -123,7 +123,7 @@ export type AgentView = {
 export type AuditEvent = { at: string; type: string; agent?: string; symbol?: string; side?: string; reason?: string; why?: string; kind?: string; qty?: number; price?: number; pnl?: number };
 export type AgentsStatus = {
   paperOnly: true;
-  live: string;
+  live: { enabled: boolean; note?: string; stopped?: { reason: string } | null };
   settings: AgentSettings;
   orders?: OrderMode;
   account?: { foreign: string[]; checkedAt: number | null } | null;
@@ -174,6 +174,25 @@ export type LlmStatus = { enabled: boolean; url: string; model: string; keySet: 
 
 export type ConnectorStatus = { url: string; set: boolean; created: string | null; lastUsed: string | null; token?: string; shownOnce?: boolean };
 
+export type LiveLimits = { perAgentAud: number; totalAud: number; perOrderAud: number; buysPerDay: number; perAgentDayAud: number; allDayAud: number; agentDailyLossAud: number; allDailyLossAud: number; agentDrawdownAud: number; totalDrawdownAud: number };
+export type LiveStatus = {
+  enabled: boolean;
+  enabledAt: string | null;
+  account: string | null;
+  limits: LiveLimits | null;
+  stopped: { reason: string; at: number } | null;
+  lastError: string;
+  broker: { number: string; cash: number } | null;
+  agents: { id: string; positions: { symbol: string }[]; boughtTodayAud: number }[];
+  keys: { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null };
+  signInReady: boolean;
+  proposed: LiveLimits;
+  hard: LiveLimits;
+  labels: Record<keyof LiveLimits, string>;
+  phrase: string;
+  funding: string;
+};
+
 export type AlpacaStatus = { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null; use: string };
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -195,6 +214,13 @@ export const api = {
     call<TickerPreview>('/api/numbers/watchlist/preview', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }),
   finviz: () => call<FinvizStatus>('/api/finviz'),
   agents: () => call<AgentsStatus>('/api/agents'),
+  live: () => call<LiveStatus>('/api/live'),
+  saveLiveKeys: (keyId: string, secret: string) => call<LiveStatus>('/api/live/keys', json('PUT', { keyId, secret })),
+  testLiveKeys: () => call<LiveStatus>('/api/live/keys/test', json('POST', {})),
+  enableLive: (b: { password: string; code: string; phrase: string; limits: LiveLimits; confirmed: string[] }) => call<LiveStatus>('/api/live/enable', json('POST', b)),
+  lowerLive: (limits: LiveLimits) => call<LiveStatus>('/api/live/lower', json('POST', { limits })),
+  disableLive: () => call<LiveStatus>('/api/live/disable', json('POST', {})),
+  resumeLive: (password: string, code: string) => call<LiveStatus>('/api/live/resume', json('POST', { password, code })),
   saveAgents: (u: Partial<AgentSettings> & { preset?: Partial<Preset>; params?: Record<string, Partial<AgentParams>> }) => call<AgentsStatus>('/api/agents/settings', json('PUT', u)),
   kill: (reason?: string) => call<AgentsStatus>('/api/agents/kill', json('POST', { reason })),
   resume: () => call<AgentsStatus>('/api/agents/resume', json('POST', {})),

@@ -117,6 +117,14 @@ export class Auth {
     fs.writeFileSync(this.file, JSON.stringify(this.devices, null, 1), { mode: 0o600 });
   }
 
+  /**
+   * A secret for `purpose`, derived from the owner's password hash: it changes when the password does,
+   * and nothing outside this process can make it. The live enablement is signed with it.
+   */
+  secretFor(purpose) {
+    return crypto.createHmac('sha256', this.pwHash).update(`frost-trader:${purpose}`).digest();
+  }
+
   async login(ip, body) {
     await this.verify(ip, body);
     const token = crypto.randomBytes(32).toString('base64url');
