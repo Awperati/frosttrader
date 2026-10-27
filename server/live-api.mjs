@@ -16,7 +16,7 @@ import { checkLocal, AUTHED } from './finviz-api.mjs';
 import { LIVE_HARD, LIVE_PROPOSED, LIMIT_LABELS, cleanLiveLimits, phraseFor } from './engine/live/enablement.mjs';
 import { accountProblem } from './engine/live/desk.mjs';
 
-export function createLiveApi({ desk, keys, enablement, auth = null, getFx = () => null }) {
+export function createLiveApi({ desk, keys, enablement, auth = null, getFx = () => null, notify = () => {} }) {
   const stepUp = async (ip, body) => {
     if (!auth) throw new HttpError(403, 'Owner sign-in is not set up on this server (FROST_TRADER_PASSWORD and FROST_TRADER_TOTP_SECRET in its .env). See docs/LIVE.md.');
     await auth.verify(ip, body || {});
@@ -75,6 +75,7 @@ export function createLiveApi({ desk, keys, enablement, auth = null, getFx = () 
           desk.audit.write({ type: 'live-enable', account: acct.number.slice(-4), limits: enablement.read()?.limits });
           // after a stop or an earlier switch-off: a fresh enablement clears it once the account holds nothing
           if (desk.state.stopped) await desk.resume().catch(() => {});
+          notify('liveSwitch', { message: 'Live trading was switched ON. Agents you choose trade with real money, inside your limits.' });
           return { status: 200, body: status() };
         }
         case 'POST /api/live/lower':
@@ -89,6 +90,7 @@ export function createLiveApi({ desk, keys, enablement, auth = null, getFx = () 
           await desk.stopAll('the owner switched live off');
           enablement.revoke('owner switched live off');
           desk.audit.write({ type: 'live-disable' });
+          notify('liveSwitch', { message: 'Live trading was switched OFF. Live positions are being closed.' });
           return { status: 200, body: status() };
         case 'POST /api/live/resume':
           await stepUp(ip, body);

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type AlpacaStatus, type FinvizStatus } from '../api';
 import { AgentsCard } from './AgentsSettings';
 import { LiveCard } from './LiveSettings';
+import { AlertsCard } from './AlertsSettings';
 import { ModelCard } from './ModelSettings';
 import { ConnectorCard } from './ConnectorSettings';
 
@@ -15,6 +16,7 @@ export function Settings() {
       <AlpacaCard />
       <AgentsCard />
       <LiveCard />
+      <AlertsCard />
       <ModelCard />
       <ConnectorCard />
     </div>

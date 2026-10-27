@@ -21,6 +21,8 @@ import { Enablement } from './engine/live/enablement.mjs';
 import { LiveDesk } from './engine/live/desk.mjs';
 import { createLiveApi } from './live-api.mjs';
 import { WebGate, SESSION, clientIp, isRemote, securityHeaders } from './web-gate.mjs';
+import { Notifier } from './notify.mjs';
+import { checkLocal } from './finviz-api.mjs';
 import { Auth } from './auth.mjs';
 import { createTotp } from './totp.mjs';
 import { loadModel } from './engine/models/v11.mjs';
@@ -137,6 +139,9 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   // LIVE (real money): off until the owner saves his live keys and signs the enablement with his
   // password and code (Settings → Live trading); then only the agents he switches to live trade there
   const auth = ownerAuth(DATA_DIR);
+  // phone alerts (ntfy): off until his topic is set (scripts/pi-alerts-setup.sh or Settings)
+  const notifier = new Notifier({ dataDir: DATA_DIR });
+  const notify = (event, msg) => void notifier.send(event, msg);
   const liveKeys = new LiveKeys({ dataDir: DATA_DIR });
   const enablement = new Enablement({ dataDir: DATA_DIR, keyFor: () => auth?.secretFor('live-enablement') ?? null });
   let host = null;
@@ -151,9 +156,10 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     running: (id) => host.running().includes(id) && host.settings.live?.[id] === true && host.paperDays(id).length >= PAPER_DAYS_BEFORE_LIVE,
     strategy: (id) => host.strategyOf(id),
     allowed: (id, universe) => (host.strategyOf(id) === 'v11' ? new Set([...universe, ...loadModel().universe]) : universe),
+    notify,
   });
-  host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh(), live: desk });
-  const live = createLiveApi({ desk, keys: liveKeys, enablement, auth, getFx: () => fx.current() });
+  host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh(), live: desk, notify });
+  const live = createLiveApi({ desk, keys: liveKeys, enablement, auth, getFx: () => fx.current(), notify });
   // the private website (docs/WEBSITE.md): off unless FROST_TRADER_PUBLIC_HOST is set (and his sign-in with a code)
   const env = process.env;
   const gate = new WebGate({
@@ -195,6 +201,10 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
         try {
           const out = await auth.login(ip, { password: body?.password, code: body?.code, device: 'Website' });
           host.audit.write({ type: 'login', ok: true, ip, device: out.deviceId });
+          if (notifier.firstTimeFrom(ip)) {
+            const country = String(req.headers['cf-ipcountry'] || '').replace(/[^A-Z]/g, '').slice(0, 2) || 'an unknown country';
+            notify('newSignIn', { message: `New sign-in to the FrostTrader website from ${country} (address ending ${ip.slice(-4)}). Not you? Press the kill switch and change your password.` });
+          }
           return send(res, 200, { token: out.token });
         } catch (e) {
           host.audit.write({ type: 'login', ok: false, ip, reason: String(e.message).slice(0, 100) });
@@ -227,6 +237,24 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
           return res.end();
         }
         return send(res, out.status, out.body);
+      }
+      if (url.pathname === '/api/notify' || url.pathname.startsWith('/api/notify/')) {
+        if (req.method === 'GET' && url.pathname === '/api/notify') return send(res, 200, notifier.status());
+        checkLocal(headers);
+        const body = await readJson(req, 4 * 1024);
+        if (req.method === 'PUT' && url.pathname === '/api/notify') {
+          try {
+            return send(res, 200, notifier.update(body || {}));
+          } catch (e) {
+            throw new HttpError(400, e.message);
+          }
+        }
+        if (req.method === 'POST' && url.pathname === '/api/notify/test') {
+          if (!notifier.on) throw new HttpError(400, 'Set a topic first.');
+          const ok = await notifier.send('test', { title: 'FrostTrader test', message: 'Alerts from FrostTrader reach this phone.' });
+          return send(res, ok ? 200 : 502, ok ? notifier.status() : { error: notifier.lastError || 'Not sent (too many in a short time?)' });
+        }
+        throw new HttpError(404, 'Not found');
       }
       if (url.pathname === '/api/live' || url.pathname.startsWith('/api/live/')) {
         const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 16 * 1024) : null;
@@ -273,6 +301,7 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     url: `http://${HOST}:${port}`,
     dataDir: DATA_DIR,
     host,
+    notifier,
     stop: () =>
       new Promise((resolve) => {
         stopParts();

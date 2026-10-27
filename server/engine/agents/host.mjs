@@ -92,8 +92,16 @@ export class AgentHost {
    * getFx(): today's AUD → USD rate { rate, date, source } (data/fx.mjs), or null; refreshFx() updates it.
    * spawn(id): a child process (tests can pass a fake).
    */
-  constructor({ dataDir, getUniverse = () => [], getData = () => null, getOrders = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, live = null, log = console }) {
+  constructor({ dataDir, getUniverse = () => [], getData = () => null, getOrders = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, live = null, notify = () => {}, log = console }) {
     Object.assign(this, { dataDir, getUniverse, getData, getOrders, getFx, refreshFx, onDayEnd, now, spawn, log });
+    // phone alerts: a failing alert never stops trading
+    this.notify = (event, msg) => {
+      try {
+        notify(event, msg);
+      } catch {
+        /* dropped */
+      }
+    };
     this.live = live; // the live desk (REAL money), or null; it trades only after the owner's signed enablement
     this.orders = null; // the Alpaca paper order client while settings.orders is "alpaca-paper"
     this.inflight = new Set(); // paper orders still on their way
@@ -241,6 +249,7 @@ export class AgentHost {
       if (this.live) this.track(this.live.stopAll(`kill switch: ${reason}`).catch(() => {}));
       for (const id of [...this.children.keys()]) this.stopChild(id);
       this.audit.write({ type: 'kill', reason });
+      this.notify('kill', { message: `Kill switch: ${reason}. Every position is being sold and every agent stopped until you resume.` });
       this.save();
     }
     return this.status();
@@ -519,6 +528,20 @@ export class AgentHost {
       }
     }
     this.audit.write({ type: 'day-end', day });
+    try {
+      const rate = this.getFx()?.rate;
+      const lines = [...this.manager.sandboxes].map(([id, sb]) => {
+        const sells = sb.broker.fills.filter((f) => f.side === 'sell' && nyClock(f.t).day === day);
+        const pnl = sells.reduce((s, f) => s + f.pnl, 0);
+        return `${id}: ${sells.length} paper trades, ${pnl >= 0 ? '+' : ''}${rate ? `A$${(pnl / rate).toFixed(2)}` : `US$${pnl.toFixed(2)}`}`;
+      });
+      const live = this.live?.enabled()
+        ? this.live.status().agents.map((a) => `${a.id} live: A$${a.realizedAud.toFixed(2)} so far`).join('; ') || 'live on, no live trades yet'
+        : 'live off';
+      this.notify('daily', { title: `FrostTrader ${day}`, message: `${lines.join('\n')}\n${live}` });
+    } catch {
+      /* a summary never stops the day's end */
+    }
     this.journal.prune(AGENT_IDS);
     // the nightly research run (server/engine/research/nightly.mjs), after the books are closed
     try {

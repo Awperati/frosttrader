@@ -196,6 +196,8 @@ export type LiveStatus = {
   funding: string;
 };
 
+export type NotifyStatus = { on: boolean; enabled: boolean; server: string; topicSet: boolean; priorities: Record<string, number>; labels: Record<string, string>; lastError: string; counts: { sent: number; failed: number; dropped: number } };
+
 export type AlpacaStatus = { set: boolean; lastTest: { at: number; ok: boolean; message: string } | null; use: string };
 
 // The private website's session token (server/web-gate.mjs), sent as a header, never as a cookie.
@@ -258,6 +260,9 @@ export const api = {
     session.set(null);
   },
   live: () => call<LiveStatus>('/api/live'),
+  notify: () => call<NotifyStatus>('/api/notify'),
+  saveNotify: (u: { server?: string; topic?: string; enabled?: boolean; priorities?: Record<string, number> }) => call<NotifyStatus>('/api/notify', json('PUT', u)),
+  testNotify: () => call<NotifyStatus>('/api/notify/test', json('POST', {})),
   saveLiveKeys: (keyId: string, secret: string) => call<LiveStatus>('/api/live/keys', json('PUT', { keyId, secret })),
   testLiveKeys: () => call<LiveStatus>('/api/live/keys/test', json('POST', {})),
   enableLive: (b: { password: string; code: string; phrase: string; limits: LiveLimits; confirmed: string[]; cashAccount: boolean }) => call<LiveStatus>('/api/live/enable', json('POST', b)),

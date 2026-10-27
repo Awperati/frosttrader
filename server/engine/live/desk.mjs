@@ -68,8 +68,15 @@ export class LiveDesk {
    * enablement: an Enablement. broker(): an AlpacaLive with his live keys, or null. getFx(): the rate.
    * audit: the host's AuditLog. agentIds, params(id), running(id): from the host.
    */
-  constructor({ dataDir, enablement, broker = () => null, getFx = () => null, audit, now = Date.now, params, running, strategy = () => 'signals', allowed = null, log = console }) {
+  constructor({ dataDir, enablement, broker = () => null, getFx = () => null, audit, now = Date.now, params, running, strategy = () => 'signals', allowed = null, notify = () => {}, log = console }) {
     Object.assign(this, { enablement, broker, getFx, audit, now, params, running, strategy, allowed, log });
+    this.notify = (event, msg) => {
+      try {
+        notify(event, msg);
+      } catch {
+        /* a failing alert never stops trading */
+      }
+    };
     this.file = path.join(dataDir, 'live-state.json');
     this.state = { agents: {}, pending: {}, unsettled: [], dayTrades: [], seq: 0, day: null, allHalt: null, stopped: null, peakTotalAud: null, account: null, lastError: '', ...(readJson(this.file) || {}) };
   }
@@ -174,6 +181,7 @@ export class LiveDesk {
       if (!this.state.allHalt && dayPnl <= -L.allDailyLossAud + 1e-9) {
         this.state.allHalt = { day, reason: `all agents' live daily loss A$${(-dayPnl).toFixed(2)} reached A$${L.allDailyLossAud}` };
         this.audit.write({ type: 'live-halt', kind: 'all-day', reason: this.state.allHalt.reason });
+        this.notify('halt', { message: `Every agent stopped live buying for today: ${this.state.allHalt.reason}. Live positions are being sold.` });
         for (const [id, a] of Object.entries(this.state.agents)) for (const s of Object.keys(a.positions)) await this.sell(b, id, a, s, prices[s], 'all agents daily loss', fx, day);
       }
       const total = ids.reduce((s, id) => s + this.equityAud(this.state.agents[id], prices, fx.rate), 0) + (4 - ids.length) * L.perAgentAud;
@@ -370,6 +378,10 @@ export class LiveDesk {
       }
     }
     this.audit.write({ type: 'live-fill', agent: pend.agent, side: pend.side, symbol: pend.symbol, qty, price: px, usd: Number(usd.toFixed(4)), clientOrderId, status: o.status });
+    const rateNow = pend.rate || this.rate()?.rate;
+    const aud = rateNow ? `A$${(usd / rateNow).toFixed(2)}` : `US$${usd.toFixed(2)}`;
+    const pnl = pend.side === 'sell' ? ` (agent's live result so far A$${a.realizedAud.toFixed(2)})` : '';
+    this.notify('fill', { title: `${pend.agent} ${pend.side === 'buy' ? 'bought' : 'sold'} ${pend.symbol}`, message: `${pend.agent} ${pend.side === 'buy' ? 'bought' : 'sold'} ${pend.symbol} for ${aud} (live)${pnl}.` });
   }
 
   async manageExit(b, id, a, symbol, list, fx, day) {
@@ -409,6 +421,7 @@ export class LiveDesk {
   async haltAgent(b, id, a, reason, fx, day) {
     a.day.halt = reason;
     this.audit.write({ type: 'live-halt', agent: id, reason });
+    this.notify('halt', { message: `${id} halted live: ${reason}. Its live positions are being sold.` });
     for (const s of Object.keys(a.positions)) await this.sell(b, id, a, s, null, `halt: ${reason}`, fx, day);
   }
 
@@ -432,6 +445,7 @@ export class LiveDesk {
     if (this.state.stopped) return;
     this.state.stopped = { reason, at: this.now() };
     this.audit.write({ type: 'live-stop', reason });
+    this.notify('liveStop', { message: `Live trading stopped: ${reason}. Every live position is being closed. Resume needs your password and code.` });
     this.save();
     if (b) {
       try {

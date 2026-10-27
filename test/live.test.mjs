@@ -198,7 +198,7 @@ function seedPaperDays(dir, n = 10) {
   }
 }
 
-async function liveHost({ live = { 'agent-a': true }, script, enable = true, account, paperDays = 10 } = {}) {
+async function liveHost({ live = { 'agent-a': true }, script, enable = true, account, paperDays = 10, notify = () => {} } = {}) {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, 'agents-settings.json'), JSON.stringify({ ...DEFAULT_SETTINGS, strategies: { 'agent-a': 'v11', 'agent-b': 'v11', 'agent-c': 'v11', 'agent-d': 'v11' } }));
   const fl = await fakeLive({ account });
@@ -227,6 +227,7 @@ async function liveHost({ live = { 'agent-a': true }, script, enable = true, acc
     running: (id) => host.running().includes(id) && host.settings.live?.[id] === true,
     strategy: (id) => host.strategyOf(id),
     allowed: (id, universe) => new Set([...universe, ...loadModel().universe]),
+    notify,
   });
   host = new AgentHost({ dataDir: dir, getUniverse: () => ['ADI'], getData: () => data, getFx: () => fx, now: () => clock.t, spawn, live: desk, log: { warn() {} } });
   seedPaperDays(dir, paperDays); // after the host opened the sandboxes (it sets aside unknown agent folders)
@@ -371,4 +372,22 @@ test('host: an agent can be switched to live only after 10 paper trading days he
 test('limits: A$100 per agent (his words), the rest scaled from his earlier set; all under the hard caps', () => {
   assert.deepEqual(LIVE_PROPOSED, { perAgentAud: 100, totalAud: 400, perOrderAud: 25, buysPerDay: 6, perAgentDayAud: 200, allDayAud: 800, agentDailyLossAud: 3, allDailyLossAud: 8, agentDrawdownAud: 10, totalDrawdownAud: 40 });
   for (const [k, v] of Object.entries(LIVE_PROPOSED)) assert.ok(v <= LIVE_HARD[k], k);
+});
+
+test('alerts: a live fill tells his phone the agent, side, stock and A$ amount; a live stop too; never the account number', async () => {
+  const sent = [];
+  const s = await liveHost({ script: (m) => (m.t === T0 ? [v11buy('FLEX', 0.65)] : []), notify: (e, m) => sent.push([e, m]) });
+  try {
+    await s.host.tick();
+    const fill = sent.find(([e]) => e === 'fill');
+    assert.ok(fill, 'a fill alert');
+    assert.match(fill[1].message, /^agent-a bought FLEX for A\$\d+\.\d\d \(live\)/);
+    await s.desk.stopAll('integrity: test');
+    const stop = sent.find(([e]) => e === 'liveStop');
+    assert.ok(stop);
+    for (const [, m] of sent) assert.ok(!/987654321/.test(JSON.stringify(m)), 'no account number');
+  } finally {
+    s.host.stop();
+    await s.fl.close();
+  }
 });

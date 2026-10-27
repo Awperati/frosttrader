@@ -34,7 +34,11 @@ if (process.env.AGENTS !== '0') {
       try {
         s.host.audit.write({ type: 'watchdog-restart', lastBeat: new Date(beat).toISOString() });
       } catch {}
-      process.exit(1);
+      // tell his phone, but never wait more than 5 seconds for it
+      Promise.race([
+        s.notifier.send('watchdog', { message: `FrostTrader on the Pi was stuck for ${Math.round((Date.now() - beat) / 60_000)} minutes and is restarting by itself. Live positions keep their exit plans after the restart.` }),
+        new Promise((r) => setTimeout(r, 5_000)),
+      ]).finally(() => process.exit(1));
     }
   }, 60_000).unref();
 }
