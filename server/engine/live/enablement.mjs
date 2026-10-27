@@ -12,18 +12,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-/** His confirmed limits, in AUD. */
+/**
+ * The proposed limits, in AUD. The owner (27 Oct 2026): "Limits per agent is $100AUD"; the others are
+ * his earlier set (A$10 per agent) scaled by 10, which he re-confirms one by one when switching on.
+ */
 export const LIVE_PROPOSED = Object.freeze({
-  perAgentAud: 10, // live money per agent
-  totalAud: 40, // all agents together, of his A$1,000
-  perOrderAud: 2.5,
+  perAgentAud: 100, // live money per agent
+  totalAud: 400, // all four agents together
+  perOrderAud: 25,
   buysPerDay: 6, // per agent
-  perAgentDayAud: 20, // bought per agent per day
-  allDayAud: 80, // bought by all agents per day
-  agentDailyLossAud: 0.3, // that agent stops for the day
-  allDailyLossAud: 0.8, // every agent stops for the day
-  agentDrawdownAud: 1, // that agent: automatic sit-out, back at half size (as on paper)
-  totalDrawdownAud: 4, // all live trading stops until the owner resumes
+  perAgentDayAud: 200, // bought per agent per day
+  allDayAud: 800, // bought by all agents per day
+  agentDailyLossAud: 3, // that agent stops for the day
+  allDailyLossAud: 8, // every agent stops for the day
+  agentDrawdownAud: 10, // that agent: automatic sit-out, back at half size (as on paper)
+  totalDrawdownAud: 40, // all live trading stops until the owner resumes
 });
 
 /** The furthest any limit can ever go, whatever a file says. */
@@ -67,7 +70,7 @@ export function cleanLiveLimits(input = {}) {
 
 export const phraseFor = (accountNumber) => `TRADE LIVE ${String(accountNumber || '').slice(-4)}`;
 
-const canonical = (rec) => JSON.stringify({ v: rec.v, enabledAt: rec.enabledAt, account: rec.account, limits: rec.limits, confirmed: rec.confirmed, rate: rec.rate });
+const canonical = (rec) => JSON.stringify({ v: rec.v, enabledAt: rec.enabledAt, account: rec.account, limits: rec.limits, confirmed: rec.confirmed, rate: rec.rate, cashAccount: rec.cashAccount });
 
 export class Enablement {
   /** keyFor(): a secret derived from the owner's password (server/auth.mjs), or null when sign-in isn't set up. */
@@ -101,8 +104,9 @@ export class Enablement {
   }
 
   /** Write a new enablement. Only the owner's enable request calls this, after every check passed. */
-  write({ account, limits, confirmed, rate }) {
-    const rec = { v: 1, enabledAt: new Date(this.now()).toISOString(), account: String(account).slice(-4), limits: cleanLiveLimits(limits), confirmed: [...confirmed].sort(), rate };
+  write({ account, limits, confirmed, rate, cashAccount = false }) {
+    // cashAccount: he confirmed that Alpaca's dashboard shows a CASH account (no day-trade rule; settled cash only)
+    const rec = { v: 1, enabledAt: new Date(this.now()).toISOString(), account: String(account).slice(-4), limits: cleanLiveLimits(limits), confirmed: [...confirmed].sort(), rate, cashAccount: cashAccount === true };
     rec.sig = this.sign(rec);
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
@@ -123,7 +127,7 @@ export class Enablement {
       if (n > cur.limits[k]) throw new Error(`${LIMIT_LABELS[k]} can only be lowered here. Raising it means enabling again.`);
       next[k] = n;
     }
-    return this.write({ account: cur.account, limits: next, confirmed: cur.confirmed, rate: cur.rate });
+    return this.write({ account: cur.account, limits: next, confirmed: cur.confirmed, rate: cur.rate, cashAccount: cur.cashAccount });
   }
 
   /** Switch live off: the file is kept beside, renamed, for the record. */

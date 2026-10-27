@@ -115,6 +115,9 @@ export type AgentView = {
   peak: number | null;
   params: AgentParams;
   strategy: Strategy;
+  live?: boolean;
+  paperDays?: number;
+  paperDaysNeeded?: number;
   lastProposals: { symbol: string; signal: string; score: number }[];
   lastDecision: { at: number; symbol: string; ok: boolean; reason: string } | null;
   recentFills: Fill[];
@@ -257,7 +260,7 @@ export const api = {
   live: () => call<LiveStatus>('/api/live'),
   saveLiveKeys: (keyId: string, secret: string) => call<LiveStatus>('/api/live/keys', json('PUT', { keyId, secret })),
   testLiveKeys: () => call<LiveStatus>('/api/live/keys/test', json('POST', {})),
-  enableLive: (b: { password: string; code: string; phrase: string; limits: LiveLimits; confirmed: string[] }) => call<LiveStatus>('/api/live/enable', json('POST', b)),
+  enableLive: (b: { password: string; code: string; phrase: string; limits: LiveLimits; confirmed: string[]; cashAccount: boolean }) => call<LiveStatus>('/api/live/enable', json('POST', b)),
   lowerLive: (limits: LiveLimits) => call<LiveStatus>('/api/live/lower', json('POST', { limits })),
   disableLive: () => call<LiveStatus>('/api/live/disable', json('POST', {})),
   resumeLive: (password: string, code: string) => call<LiveStatus>('/api/live/resume', json('POST', { password, code })),

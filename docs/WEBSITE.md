@@ -2,7 +2,10 @@
 
 Built 27 Oct 2026 after the owner's "I want to turn it into a live trading website now" and "a. sounds
 good" (relayed by Top Dog): a **private** website for you only, on your phone and PC. Not public.
-**Off until you set it up.**
+**Off until you set it up.** Your answers (27 Oct): hostname `trader.frosttechnology.com.au`; Access
+one-time code to your email only, 24 hours; FrostTrader checks Access's signed token; sign-out after 30
+minutes idle or 12 hours; the phone can do everything except typing live keys; the SSH tunnel keeps
+working.
 
 ## How it is protected
 

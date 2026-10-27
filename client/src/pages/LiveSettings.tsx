@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type LiveLimits, type LiveStatus } from '../api';
+import { api, type AgentView, type LiveLimits, type LiveStatus } from '../api';
 
 // Settings → Live trading (REAL money). Off until the owner saves his live key pair, checks the
 // account, confirms every limit and types the phrase with his password and code. The server checks
@@ -17,10 +17,12 @@ export function LiveCard() {
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [agents, setAgents] = useState<Record<string, boolean> | null>(null);
+  const [views, setViews] = useState<AgentView[]>([]);
+  const [cash, setCash] = useState(false);
 
   useEffect(() => {
     api.live().then((s) => (setSt(s), setLimits(s.limits ?? s.proposed)), (e) => setErr((e as Error).message));
-    api.agents().then((a) => setAgents(a.settings.live ?? null), () => {});
+    api.agents().then((a) => (setAgents(a.settings.live ?? null), setViews(a.agents)), () => {});
   }, []);
 
   async function run(label: string, fn: () => Promise<LiveStatus>) {
@@ -44,6 +46,7 @@ export function LiveCard() {
     try {
       const a = await api.saveAgents({ live: next });
       setAgents(a.settings.live ?? null);
+      setViews(a.agents);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -98,6 +101,10 @@ export function LiveCard() {
               </label>
             ))}
           </div>
+          <label className="field check">
+            <input type="checkbox" checked={cash} onChange={(e) => setCash(e.target.checked)} />
+            <span>Alpaca's dashboard shows this live account as a <b>CASH</b> account (not margin). A margin account is refused.</span>
+          </label>
           <h3>3. Switch it on</h3>
           {!st.signInReady ? <p className="small error">This server has no owner sign-in yet (FROST_TRADER_PASSWORD and FROST_TRADER_TOTP_SECRET). See docs/LIVE.md.</p> : null}
           <label className="field">
@@ -115,7 +122,7 @@ export function LiveCard() {
             </label>
           </div>
           <div className="row">
-            <button className="danger" onClick={() => window.confirm('Switch LIVE trading on? Agents you choose will trade with real money, inside these limits.') && run('enable', () => api.enableLive({ password, code, phrase, limits, confirmed }))} disabled={!!busy || !st.keys.set || confirmed.length !== keys.length || !phrase || !password}>
+            <button className="danger" onClick={() => window.confirm('Switch LIVE trading on? Agents you choose will trade with real money, inside these limits.') && run('enable', () => api.enableLive({ password, code, phrase, limits, confirmed, cashAccount: cash }))} disabled={!!busy || !st.keys.set || confirmed.length !== keys.length || !phrase || !password || !cash}>
               {busy === 'enable' ? 'Checking…' : 'Switch live trading on'}
             </button>
           </div>
@@ -140,12 +147,18 @@ export function LiveCard() {
             </button>
           </div>
           <h3>Which agents trade live</h3>
-          <p className="small muted">An agent switched to live also trades with real money, inside the limits above. It keeps trading on paper too.</p>
+          <p className="small muted">An agent switched to live also trades with real money, inside the limits above. It keeps trading on paper too. Each agent needs 10 trading days on paper here first.</p>
           <div className="row">
             {agents
               ? Object.entries(agents).map(([id, on]) => (
                   <label key={id} className="check">
-                    <input type="checkbox" checked={on} onChange={(e) => (!e.target.checked || window.confirm(`Let ${id} trade with real money?`)) && saveAgents({ ...agents, [id]: e.target.checked })} /> {id}
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      disabled={!on && (views.find((v) => v.id === id)?.paperDays ?? 0) < (views.find((v) => v.id === id)?.paperDaysNeeded ?? 10)}
+                      onChange={(e) => (!e.target.checked || window.confirm(`Let ${id} trade with real money?`)) && saveAgents({ ...agents, [id]: e.target.checked })}
+                    />{' '}
+                    {id} <span className="small muted">({views.find((v) => v.id === id)?.paperDays ?? 0} of {views.find((v) => v.id === id)?.paperDaysNeeded ?? 10} paper days)</span>
                   </label>
                 ))
               : null}

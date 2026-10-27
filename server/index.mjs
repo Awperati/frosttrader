@@ -20,3 +20,21 @@ const s = await startServer({
   tickerMirror: process.env.TICKER_MIRROR !== '0',
 });
 console.log(`Frost Trader (stage 0, read-only) on ${s.url}  data: ${s.dataDir}`);
+
+// The watchdog for unattended nights (the owner, 27 Oct 2026: "it'll be running when I'm asleep"): the
+// agents tick once a minute; if no tick has started for 5 minutes, something is stuck, so the process
+// ends and Docker starts it again (restart: unless-stopped). Positions resume their exit plans then.
+if (process.env.AGENTS !== '0') {
+  const STUCK_MS = 5 * 60_000;
+  const started = Date.now();
+  setInterval(() => {
+    const beat = s.host.beat ?? started;
+    if (Date.now() - beat > STUCK_MS) {
+      console.error(`Watchdog: no agent tick for ${Math.round((Date.now() - beat) / 60_000)} minutes. Restarting.`);
+      try {
+        s.host.audit.write({ type: 'watchdog-restart', lastBeat: new Date(beat).toISOString() });
+      } catch {}
+      process.exit(1);
+    }
+  }, 60_000).unref();
+}

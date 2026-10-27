@@ -248,9 +248,11 @@ export class LiveDesk {
     const pendingBuys = Object.values(this.state.pending).filter((o) => o.side === 'buy').reduce((s, o) => s + o.notionalUsd, 0);
     const settled = Math.min(acct.cash, Number.isFinite(acct.nonMarginableBuyingPower) ? acct.nonMarginableBuyingPower : acct.cash) - pendingBuys;
     if (notionalUsd > settled + 1e-9) return no('18', `US$${notionalUsd.toFixed(2)} is more than the account's settled cash (US$${settled.toFixed(2)})`);
-    // 19: day trades (every entry is closed by the session's end)
+    // 19: day trades (every entry is closed by the session's end): the pattern-day-trader rule binds
+    // margin accounts only, so it is skipped when he confirmed a CASH account (check 18 then limits
+    // each dollar to one round trip a day); Alpaca's own protection still has the last word
     const trades = Math.max(this.state.dayTrades.length, acct.daytradeCount ?? 0);
-    if (trades >= DAY_TRADES_IN_5) return no('19', `${trades} day trades in the last 5 business days (the limit under US$25k is ${DAY_TRADES_IN_5})`);
+    if (this.enabled()?.cashAccount !== true && trades >= DAY_TRADES_IN_5) return no('19', `${trades} day trades in the last 5 business days (the limit under US$25k is ${DAY_TRADES_IN_5})`);
     const plan = v11
       ? { stop: bar.c * (1 - stopDist), target: null, trailPct: stopDist, best: bar.c, maxHold: exit.maxHold }
       : { stop: bar.c - params.stopAtr * r, target: bar.c + params.targetAtr * r };

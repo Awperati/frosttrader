@@ -13,7 +13,7 @@ import { createNumbersApi } from './numbers-api.mjs';
 import { createFinvizApi } from './finviz-api.mjs';
 import { FinvizSource } from './engine/finviz.mjs';
 import { TickerMirror } from './engine/ticker-mirror.mjs';
-import { AgentHost } from './engine/agents/host.mjs';
+import { AgentHost, PAPER_DAYS_BEFORE_LIVE } from './engine/agents/host.mjs';
 import { AlpacaKeys } from './alpaca-keys.mjs';
 import { AlpacaPaperOrders } from './engine/broker/alpaca-paper-orders.mjs';
 import { LiveKeys } from './live-keys.mjs';
@@ -147,7 +147,8 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     getFx: () => fx.current(),
     audit: { write: (e) => host.audit.write(e) }, // the host's hash-chained log (one writer)
     params: (id) => host.settings.params[id],
-    running: (id) => host.running().includes(id) && host.settings.live?.[id] === true,
+    // only agents he switched to live, and only after their 10 paper days (also when a settings file says live)
+    running: (id) => host.running().includes(id) && host.settings.live?.[id] === true && host.paperDays(id).length >= PAPER_DAYS_BEFORE_LIVE,
     strategy: (id) => host.strategyOf(id),
     allowed: (id, universe) => (host.strategyOf(id) === 'v11' ? new Set([...universe, ...loadModel().universe]) : universe),
   });
@@ -271,6 +272,7 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     port,
     url: `http://${HOST}:${port}`,
     dataDir: DATA_DIR,
+    host,
     stop: () =>
       new Promise((resolve) => {
         stopParts();

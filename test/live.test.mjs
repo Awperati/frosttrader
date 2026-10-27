@@ -102,8 +102,8 @@ test('enablement: signed with a key from his password; an edit, another password
   en.write({ account: '987654321', limits: LIVE_PROPOSED, confirmed: ALL_CONFIRMED, rate: null });
   assert.equal(en.read().account, '4321');
   assert.deepEqual(en.read().limits, LIVE_PROPOSED);
-  assert.throws(() => en.lower({ perAgentAud: 20 }), /only be lowered/);
-  assert.equal(en.lower({ perAgentAud: 5 }).limits.perAgentAud, 5);
+  assert.throws(() => en.lower({ perAgentAud: 200 }), /only be lowered/);
+  assert.equal(en.lower({ perAgentAud: 50 }).limits.perAgentAud, 50);
   const file = path.join(dir, 'owner', 'live-enablement.json');
   const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
   fs.writeFileSync(file, JSON.stringify({ ...rec, limits: { ...rec.limits, perAgentAud: 250 } }));
@@ -150,7 +150,8 @@ test('API: switching live on needs this computer, his password, the right phrase
     await assert.rejects(call('POST /api/live/enable', { password: 'owner-password', phrase: 'TRADE LIVE 4321', confirmed: ['perAgentAud'] }), /Confirm every limit/);
     assert.equal(s.enablement.read(), null);
     assert.equal(phraseFor('987654321'), 'TRADE LIVE 4321');
-    const out = await call('POST /api/live/enable', { password: 'owner-password', phrase: 'TRADE LIVE 4321', confirmed: ALL_CONFIRMED, limits: LIVE_PROPOSED });
+    await assert.rejects(call('POST /api/live/enable', { password: 'owner-password', phrase: 'TRADE LIVE 4321', confirmed: ALL_CONFIRMED, limits: LIVE_PROPOSED }), /CASH account/);
+    const out = await call('POST /api/live/enable', { password: 'owner-password', phrase: 'TRADE LIVE 4321', confirmed: ALL_CONFIRMED, limits: LIVE_PROPOSED, cashAccount: true });
     assert.equal(out.body.enabled, true);
     assert.deepEqual(out.body.limits, LIVE_PROPOSED);
     assert.ok(!JSON.stringify(out.body).includes(KEY) && !JSON.stringify(out.body).includes(SECRET), 'no key in the answer');
@@ -167,7 +168,7 @@ test('API: switching live on needs this computer, his password, the right phrase
 test('API: a margin account, or a server without his sign-in, keeps live off', async () => {
   const s = await apiSetup({ account: { multiplier: '2' } });
   try {
-    await assert.rejects(s.api.handle('POST', '/api/live/enable', local, { password: 'owner-password', phrase: 'TRADE LIVE 4321', confirmed: ALL_CONFIRMED }, '127.0.0.1'), /margin account/);
+    await assert.rejects(s.api.handle('POST', '/api/live/enable', local, { password: 'owner-password', phrase: 'TRADE LIVE 4321', confirmed: ALL_CONFIRMED, cashAccount: true }, '127.0.0.1'), /margin account/);
     const noAuth = createLiveApi({ desk: s.desk, keys: s.keys, enablement: s.enablement, auth: null });
     await assert.rejects(noAuth.handle('POST', '/api/live/enable', local, { password: 'x' }, '127.0.0.1'), (e) => e.status === 403 && /sign-in is not set up/.test(e.message));
   } finally {
@@ -187,13 +188,23 @@ function bars(end, price, n = 40, last = {}) {
   return out;
 }
 
-async function liveHost({ live = { 'agent-a': true }, script, enable = true, account } = {}) {
+/** Ten weekdays of paper decision logs for every agent (the 10-paper-day rule before live). */
+function seedPaperDays(dir, n = 10) {
+  const days = [];
+  for (let d = new Date('2026-10-20T12:00:00Z'); days.length < n; d.setUTCDate(d.getUTCDate() - 1)) if (d.getUTCDay() % 6) days.push(d.toISOString().slice(0, 10));
+  for (const id of ['agent-a', 'agent-b', 'agent-c', 'agent-d']) {
+    fs.mkdirSync(path.join(dir, 'agents', id), { recursive: true });
+    for (const day of days) fs.writeFileSync(path.join(dir, 'agents', id, `decisions-${day}.jsonl`), '{}\n');
+  }
+}
+
+async function liveHost({ live = { 'agent-a': true }, script, enable = true, account, paperDays = 10 } = {}) {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, 'agents-settings.json'), JSON.stringify({ ...DEFAULT_SETTINGS, strategies: { 'agent-a': 'v11', 'agent-b': 'v11', 'agent-c': 'v11', 'agent-d': 'v11' } }));
   const fl = await fakeLive({ account });
   const keys = liveKeysFor(dir, fl.base);
   const enablement = new Enablement({ dataDir: dir, keyFor: () => Buffer.from('k'.repeat(32)) });
-  if (enable) enablement.write({ account: '987654321', limits: LIVE_PROPOSED, confirmed: ALL_CONFIRMED, rate: null });
+  if (enable) enablement.write({ account: '987654321', limits: LIVE_PROPOSED, confirmed: ALL_CONFIRMED, rate: null, cashAccount: true });
   const clock = { t: T0 };
   const market = { prices: { FLEX: 60, ADI: 250 }, last: {} };
   const data = { bars: async (symbols) => Object.fromEntries(symbols.filter((s) => market.prices[s]).map((s) => [s, bars(clock.t, market.prices[s], 40, market.last[s] || {})])) };
@@ -218,7 +229,14 @@ async function liveHost({ live = { 'agent-a': true }, script, enable = true, acc
     allowed: (id, universe) => new Set([...universe, ...loadModel().universe]),
   });
   host = new AgentHost({ dataDir: dir, getUniverse: () => ['ADI'], getData: () => data, getFx: () => fx, now: () => clock.t, spawn, live: desk, log: { warn() {} } });
-  if (enable && live) host.updateSettings({ live });
+  seedPaperDays(dir, paperDays); // after the host opened the sandboxes (it sets aside unknown agent folders)
+  try {
+    if (enable && live) host.updateSettings({ live });
+  } catch (e) {
+    host.stop();
+    await fl.close();
+    throw e;
+  }
   return { host, desk, fl, clock, market, dir };
 }
 const v11buy = (symbol, score) => ({ symbol, action: 'buy', signal: 'model_v11', score });
@@ -320,11 +338,37 @@ test('host + desk: settled cash (check 18) and day trades (check 19) refuse buys
   }
   const d = await liveHost({ account: { daytrade_count: 3 }, script: () => [v11buy('FLEX', 0.65)] });
   try {
+    // a confirmed CASH account: the day-trade rule (margin only) does not stop it
     await d.host.tick();
-    assert.equal(d.fl.seen.filter((r) => r.method === 'POST').length, 0);
-    assert.ok(d.host.audit.tail(40).some((e) => e.type === 'live-refused' && e.check === '19'));
+    assert.equal(d.fl.seen.filter((r) => r.method === 'POST').length, 1);
+    // without that confirmation: 3 day trades in 5 days refuse the next buy
+    const en = new Enablement({ dataDir: d.dir, keyFor: () => Buffer.from('k'.repeat(32)) });
+    en.write({ account: '987654321', limits: LIVE_PROPOSED, confirmed: ALL_CONFIRMED, rate: null, cashAccount: false });
+    d.desk.state.agents['agent-a'].positions = {};
+    d.fl.positions = {};
+    d.clock.t += 5 * MIN;
+    await d.host.tick();
+    assert.ok(d.host.audit.tail(60).some((e) => e.type === 'live-refused' && e.check === '19'));
   } finally {
     d.host.stop();
     await d.fl.close();
   }
+});
+
+test('host: an agent can be switched to live only after 10 paper trading days here; the count is shown', async () => {
+  await assert.rejects(liveHost({ paperDays: 6, script: () => [] }), /agent-a has 6 of 10 paper trading days/);
+  const s = await liveHost({ paperDays: 10, script: () => [] });
+  try {
+    const st = s.host.status();
+    const a = st.agents.find((x) => x.id === 'agent-a');
+    assert.deepEqual([a.paperDays, a.paperDaysNeeded, a.live], [10, 10, true]);
+  } finally {
+    s.host.stop();
+    await s.fl.close();
+  }
+});
+
+test('limits: A$100 per agent (his words), the rest scaled from his earlier set; all under the hard caps', () => {
+  assert.deepEqual(LIVE_PROPOSED, { perAgentAud: 100, totalAud: 400, perOrderAud: 25, buysPerDay: 6, perAgentDayAud: 200, allDayAud: 800, agentDailyLossAud: 3, allDailyLossAud: 8, agentDrawdownAud: 10, totalDrawdownAud: 40 });
+  for (const [k, v] of Object.entries(LIVE_PROPOSED)) assert.ok(v <= LIVE_HARD[k], k);
 });

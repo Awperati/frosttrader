@@ -60,6 +60,9 @@ export const TIMING = Object.freeze({
   modelBarsKept: 1200,
 });
 export const SIT_OUT_DAYS = 2; // the halted day itself plus the next trading day
+// the owner (27 Oct 2026): "10 paper days before live to get an idea of the general scope and direction
+// of how the models will perform"
+export const PAPER_DAYS_BEFORE_LIVE = 10;
 export const CLEAN_DAYS_TO_FULL = 5;
 export const HALF = 0.5;
 
@@ -201,8 +204,13 @@ export class AgentHost {
     if (input?.orders && input.orders !== this.settings.orders && Object.keys(this.holders()).length) {
       throw new Error('Switch where orders go only while no agent holds a position (after the close, or after flattening).');
     }
-    if (input?.live && Object.entries(input.live).some(([id, on]) => on === true && this.settings.live?.[id] !== true) && !this.live?.enabled()) {
+    const turningOn = input?.live ? Object.entries(input.live).filter(([id, on]) => on === true && this.settings.live?.[id] !== true).map(([id]) => id) : [];
+    if (turningOn.length && !this.live?.enabled()) {
       throw new Error('Switch live trading on first (Settings → Live trading), then choose which agents trade live.');
+    }
+    for (const id of turningOn) {
+      const n = this.paperDays(id).length;
+      if (n < PAPER_DAYS_BEFORE_LIVE) throw new Error(`${id} has ${n} of ${PAPER_DAYS_BEFORE_LIVE} paper trading days on this computer: it can trade live after ${PAPER_DAYS_BEFORE_LIVE - n} more.`);
     }
     if (input?.runHere === false && this.settings.runHere !== false && Object.keys(this.holders()).length) {
       throw new Error('Move the agents to another computer only while no agent holds a position.');
@@ -466,8 +474,29 @@ export class AgentHost {
   }
 
   /** After the close: each agent's per-signal round trips go to the knowledge store (adoption is off). */
+  /**
+   * The trading days this agent ran on paper here: recorded at each day's end, plus the days its decision
+   * log shows (the record from before this was counted). Weekdays only.
+   */
+  paperDays(id) {
+    const days = new Set(this.state.agents[id]?.paperDays || []);
+    try {
+      for (const f of fs.readdirSync(this.journal.dir(id))) {
+        const m = /^decisions-(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(f);
+        if (m) days.add(m[1]);
+      }
+    } catch {
+      /* no journal yet */
+    }
+    return [...days].filter((d) => ![0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay())).sort();
+  }
+
   endDay(day) {
     this.state.closedDay = day;
+    for (const id of this.running()) {
+      const a = this.state.agents[id];
+      if (!a.paperDays?.includes(day)) a.paperDays = [...(a.paperDays || []), day].slice(-60);
+    }
     for (const [id, sb] of this.manager.sandboxes) {
       const today = sb.broker.fills.filter((f) => nyClock(f.t).day === day);
       const bySignal = {};
@@ -515,6 +544,7 @@ export class AgentHost {
 
   async #tick() {
     const now = this.now();
+    this.beat = now; // the watchdog (server/index.mjs) restarts the server if this stops moving
     if (fs.existsSync(this.killFile) && !this.state.killed) this.kill('KILL file found in the data folder');
     if (this.state.killed || this.state.integrity) return;
     if (this.settings.runHere === false) {
@@ -905,6 +935,9 @@ export class AgentHost {
         peak: a.peak,
         params: this.settings.params[id],
         strategy: this.strategyOf(id),
+        live: this.settings.live?.[id] === true,
+        paperDays: this.paperDays(id).length,
+        paperDaysNeeded: PAPER_DAYS_BEFORE_LIVE,
         limits: sb?.guard.limits ?? null,
         lastProposals: a.lastProposals,
         lastDecision: a.lastDecision,

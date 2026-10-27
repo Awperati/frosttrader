@@ -68,8 +68,10 @@ export function createLiveApi({ desk, keys, enablement, auth = null, getFx = () 
           const confirmed = Array.isArray(body?.confirmed) ? body.confirmed.filter((k) => k in LIVE_HARD) : [];
           const missing = Object.keys(LIVE_HARD).filter((k) => !confirmed.includes(k));
           if (missing.length) throw new HttpError(400, `Confirm every limit first: ${missing.map((k) => LIMIT_LABELS[k]).join(', ')}.`);
+          // the owner (27 Oct 2026) chose a cash account: he confirms it from Alpaca's dashboard, or live stays off
+          if (body?.cashAccount !== true) throw new HttpError(400, 'Confirm that Alpaca\'s dashboard shows this live account as a CASH account. A margin account is refused.');
           const fx = getFx();
-          enablement.write({ account: acct.number, limits: cleanLiveLimits(body?.limits || {}), confirmed, rate: fx ? { rate: fx.rate, date: fx.date } : null });
+          enablement.write({ account: acct.number, limits: cleanLiveLimits(body?.limits || {}), confirmed, rate: fx ? { rate: fx.rate, date: fx.date } : null, cashAccount: true });
           desk.audit.write({ type: 'live-enable', account: acct.number.slice(-4), limits: enablement.read()?.limits });
           // after a stop or an earlier switch-off: a fresh enablement clears it once the account holds nothing
           if (desk.state.stopped) await desk.resume().catch(() => {});
