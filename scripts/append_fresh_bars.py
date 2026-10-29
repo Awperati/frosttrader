@@ -20,7 +20,9 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-CSV = ROOT / "stock_ohlcv" / "ALL_STOCKS_5m_iex.csv"
+# One source of truth: FROSTTRADER_BARS_CSV points at the bars file the server keeps fresh (its
+# DATA_DIR copy, which the refresh_bars tool appends to). The repo's stock_ohlcv copy is the fallback.
+CSV = Path(os.environ.get("FROSTTRADER_BARS_CSV") or (ROOT / "stock_ohlcv" / "ALL_STOCKS_5m_iex.csv"))
 COLS = ["ticker", "timestamp", "open", "high", "low", "close", "volume"]
 
 

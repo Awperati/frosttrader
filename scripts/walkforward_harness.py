@@ -247,7 +247,8 @@ def _score_all(ms, df, features=ALL_FEATURES):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default=str(DATA_DIR / os.environ.get("V11_CSV", "ALL_STOCKS_5m_iex.csv")))
+    # One source of truth: FROSTTRADER_BARS_CSV (the server's DATA_DIR bars file) wins; else the repo copy.
+    ap.add_argument("--csv", default=os.environ.get("FROSTTRADER_BARS_CSV") or str(DATA_DIR / os.environ.get("V11_CSV", "ALL_STOCKS_5m_iex.csv")))
     ap.add_argument("--cutoffs", nargs="+", default=["2026-10-10"], help="YYYY-MM-DD day(s)")
     ap.add_argument("--test-days", type=int, default=0, help="days per cutoff window (0 = to next cutoff/end)")
     ap.add_argument("--q", type=float, default=0.95)

@@ -87,7 +87,7 @@ test('protocol: initialize, a notification (202), ping, tools/list, a batch, unk
   assert.deepEqual((await rpc('ping')).result, {});
   const list = (await rpc('tools/list')).result.tools.map((t) => t.name);
   assert.deepEqual(list, TOOLS.map((t) => t.name));
-  assert.equal(list.length, 8);
+  assert.equal(list.length, 9);
   assert.ok(!list.some((n) => /resume|limit|setting|live|money/.test(n)), 'no tool to resume, change limits, settings, money or live');
   const batch = await conn.handle('POST', H, [{ jsonrpc: '2.0', id: 'a', method: 'ping' }, { jsonrpc: '2.0', method: 'notifications/initialized' }, { jsonrpc: '2.0', id: 'b', method: 'tools/list' }]);
   assert.deepEqual(batch.body.map((r) => r.id), ['a', 'b']);
@@ -95,6 +95,19 @@ test('protocol: initialize, a notification (202), ping, tools/list, a batch, unk
   assert.equal((await rpc('tools/call', { name: 'frosttrader_resume', arguments: {} })).error.code, -32602);
   assert.equal((await rpc('tools/call', { name: 'frosttrader_status', arguments: { live: true } })).error.code, -32602);
   assert.equal((await conn.handle('POST', H, { id: 9 })).body.error.code, -32600);
+  host.stop();
+});
+
+test('refresh_bars: a non-read tool that calls the bar refresher', async () => {
+  const { host, token, H } = setup();
+  let called = 0;
+  const refresher = { refresh: async () => (called++, { ok: true, added: 3, total: 100 }) };
+  const conn = createConnector({ host, refresher, token, now: () => T0, limitPerMin: 1000 });
+  const r = (await conn.handle('POST', H, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'refresh_bars', arguments: {} } })).body;
+  assert.equal(called, 1);
+  assert.equal(r.result.isError, false);
+  assert.deepEqual(r.result.structuredContent, { ok: true, added: 3, total: 100 });
+  assert.equal(TOOLS.find((t) => t.name === 'refresh_bars').annotations.readOnlyHint, false);
   host.stop();
 });
 

@@ -31,6 +31,7 @@ import { FxRate } from './engine/data/fx.mjs';
 import { Research } from './engine/research/nightly.mjs';
 import { ModelIdeas } from './engine/research/hypotheses.mjs';
 import { ConnectorToken, createConnector } from './connector.mjs';
+import { BarsRefresher } from './engine/data/refresh-bars.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const HOST = '127.0.0.1';
@@ -175,7 +176,8 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   host.onDayEnd = (day) => research.run(day, finvizSource.symbols());
   // the Frost AI connector (MCP at /mcp): read tools plus stop/start/kill, behind a token made in Settings
   const connectorToken = new ConnectorToken({ dataDir: DATA_DIR });
-  const connector = createConnector({ host, research, token: connectorToken });
+  const refresher = new BarsRefresher({ dataDir: DATA_DIR, getData: () => alpacaKeys.client() });
+  const connector = createConnector({ host, research, refresher, token: connectorToken });
   const agents = createAgentsApi({ host, keys: alpacaKeys, research, ideas, connectorToken, port: () => port });
   const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => ({ ...finvizSource.status(), holders: host.holders() }) });
 

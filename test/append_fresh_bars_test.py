@@ -4,6 +4,8 @@
 Run with the FrostTrader interpreter:  py -3.14 test/append_fresh_bars_test.py
 (No network, no keys: only the pure merge/dedup/backup on synthetic bars.)
 """
+import importlib
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -75,6 +77,23 @@ def test_backup_copies_then_leaves_original():
         assert bak and bak.exists() and bak != csv
         assert csv.exists(), "the original stays"
         assert bak.read_bytes() == csv.read_bytes(), "the backup is a faithful copy"
+
+
+def test_frosttrader_bars_csv_env_overrides_the_default():
+    old = os.environ.get("FROSTTRADER_BARS_CSV")
+    try:
+        os.environ["FROSTTRADER_BARS_CSV"] = os.path.join(tempfile.gettempdir(), "custom", "bars.csv")
+        importlib.reload(A)
+        assert str(A.CSV).replace("\\", "/").endswith("custom/bars.csv"), A.CSV
+        os.environ.pop("FROSTTRADER_BARS_CSV")
+        importlib.reload(A)
+        assert str(A.CSV).endswith("ALL_STOCKS_5m_iex.csv"), A.CSV  # falls back to the repo copy
+    finally:
+        if old is None:
+            os.environ.pop("FROSTTRADER_BARS_CSV", None)
+        else:
+            os.environ["FROSTTRADER_BARS_CSV"] = old
+        importlib.reload(A)
 
 
 if __name__ == "__main__":

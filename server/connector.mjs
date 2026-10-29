@@ -79,9 +79,10 @@ export const TOOLS = [
   { name: 'frosttrader_stop', description: 'Stop new buys for all paper agents. Exits and halts keep running; nothing is sold. Undo with frosttrader_start.', inputSchema: S({}), annotations: { readOnlyHint: false, destructiveHint: false } },
   { name: 'frosttrader_start', description: 'Undo frosttrader_stop. Does not clear the kill switch (only FrostTrader\'s own screen can).', inputSchema: S({}), annotations: { readOnlyHint: false, destructiveHint: false } },
   { name: 'frosttrader_kill', description: 'The kill switch: sell every paper position and stop every agent until the owner resumes on FrostTrader\'s own screen.', inputSchema: S({ reason: { type: 'string', maxLength: 200 } }, ['reason']), annotations: { readOnlyHint: false, destructiveHint: true } },
+  { name: 'refresh_bars', description: 'Fetch the latest 5-minute IEX bars after the newest one already saved and append them to the training bars file (market data only; no orders). Rate-limited to once every 5 minutes, skipped when the newest bar is under 5 minutes old.', inputSchema: S({}), annotations: { readOnlyHint: false, destructiveHint: false } },
 ];
 
-export function createConnector({ host, research = null, token, now = Date.now, limitPerMin = 60 }) {
+export function createConnector({ host, research = null, refresher = null, token, now = Date.now, limitPerMin = 60 }) {
   const hits = [];
   const today = () => nyClock(now()).day;
   const dayArg = (v) => {
@@ -139,6 +140,10 @@ export function createConnector({ host, research = null, token, now = Date.now, 
       if (typeof a.reason !== 'string' || !a.reason.trim()) throw rpcError(-32602, 'reason is required');
       const st = host.kill(`Frost AI connector: ${a.reason.slice(0, 200)}`);
       return { killed: st.killed, note: 'Everything was sold and every agent stopped. Resume on FrostTrader\'s own screen.' };
+    },
+    refresh_bars: () => {
+      if (!refresher) return { ok: false, error: 'Bar refresh is not set up on this server.' };
+      return refresher.refresh();
     },
   };
 
