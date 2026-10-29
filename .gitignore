@@ -1,6 +1,7 @@
 node_modules
 client/dist
 /data
+server/data/
 .env
 *.log
 *.jks
