@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type AgentsStatus, type AgentView } from '../api';
+import { api, type AgentsStatus, type AgentView, type ApiError } from '../api';
 import { num, signed, tone } from '../format';
 import { DaySummaryCard, DecisionLog, ExportLinks, StatsView, nyToday } from './AgentInsight';
 import { ResearchView } from './Research';
@@ -14,13 +14,25 @@ const qty = (q: number) => num(q, q % 1 ? 4 : 0);
 export function Portfolio() {
   const [st, setSt] = useState<AgentsStatus | null>(null);
   const [err, setErr] = useState('');
+  // true when the only reason there's no data is the Pi view still syncing — show it calmly, not as an error.
+  const [piSyncing, setPiSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<'overview' | 'log' | 'stats' | 'research' | 'export'>('overview');
   const [day, setDay] = useState(nyToday());
 
   useEffect(() => {
     let live = true;
-    const load = () => api.agents().then((s) => live && (setSt(s), setErr('')), (e) => live && setErr((e as Error).message));
+    const load = () =>
+      api.agents().then(
+        (s) => live && (setSt(s), setErr(''), setPiSyncing(false)),
+        (e) => {
+          if (!live) return;
+          const info = (e as ApiError).info;
+          setErr((e as Error).message);
+          // Benign: the Pi view is up but the first mirror hasn't landed yet (no syncError).
+          setPiSyncing(!!info?.runningOnPi && !info?.syncError);
+        },
+      );
     load();
     const t = setInterval(load, 15_000);
     return () => {
@@ -41,7 +53,18 @@ export function Portfolio() {
     }
   }
 
-  if (!st) return <div className="panel">{err ? <p className="error">{err}</p> : <p className="muted">Loading…</p>}</div>;
+  if (!st)
+    return (
+      <div className="panel">
+        {piSyncing ? (
+          <p className="muted">Running on the Pi — syncing the latest numbers…</p>
+        ) : err ? (
+          <p className="error">{err}</p>
+        ) : (
+          <p className="muted">Loading…</p>
+        )}
+      </div>
+    );
   const stopped = st.killed || !!st.integrity;
   const total = st.agents.reduce((s, a) => s + (a.equity ?? 0), 0);
   const todayPnl = st.agents.reduce((s, a) => s + (a.dayPnl ?? 0), 0);

@@ -222,6 +222,10 @@ const session = {
 };
 export const SIGN_IN_EVENT = 'ft-sign-in-required';
 
+// An error from a non-2xx response: keeps the HTTP status and the parsed JSON body (e.g. { runningOnPi,
+// syncError } on the Pi view's 503), so callers can show the right message instead of a bare string.
+export type ApiError = Error & { status?: number; info?: { runningOnPi?: boolean; syncError?: string | null; error?: string } };
+
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const token = session.get();
   const headers = new Headers(init?.headers);
@@ -232,7 +236,14 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
     session.set(null);
     window.dispatchEvent(new Event(SIGN_IN_EVENT));
   }
-  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    // Carry the status and the parsed body so a caller can tell a benign state (e.g. the Pi view
+    // still syncing: 503 with runningOnPi + no syncError) from a real failure, instead of only a string.
+    const e = new Error(body.error || `HTTP ${res.status}`) as ApiError;
+    e.status = res.status;
+    e.info = body;
+    throw e;
+  }
   return body as T;
 }
 
