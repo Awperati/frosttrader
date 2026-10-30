@@ -114,7 +114,7 @@ export function ownerAuth(dataDir, env = process.env) {
   return new Auth(path.join(dataDir, 'owner'), password, totp, { limits: { idleMs: SESSION.idleMs, maxAgeMs: SESSION.maxAgeMs } });
 }
 
-export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = path.join(ROOT, 'client', 'dist'), agents: runAgents = true, finviz: runFinviz = true, tickerMirror = true, log = console } = {}) {
+export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = path.join(ROOT, 'client', 'dist'), agents: runAgents = true, finviz: runFinviz = true, tickerMirror = true, settingsDefaults = null, log = console } = {}) {
   if (!dataDir) throw new Error('startServer needs a dataDir');
   const DATA_DIR = path.resolve(dataDir);
   const DIST = path.resolve(distDir);
@@ -160,7 +160,7 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     allowed: (id, universe) => (host.strategyOf(id) === 'v11' ? new Set([...universe, ...loadModel().universe]) : universe),
     notify,
   });
-  host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh(), live: desk, notify });
+  host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh(), live: desk, notify, settingsDefaults });
   const live = createLiveApi({ desk, keys: liveKeys, enablement, auth, getFx: () => fx.current(), notify });
   // the private website (docs/WEBSITE.md): off unless FROST_TRADER_PUBLIC_HOST is set (and his sign-in with a code)
   const env = process.env;
@@ -185,7 +185,9 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   // When the agents run on the Pi (runHere:false) and a Pi source is set, mirror the Pi's READ-ONLY
   // data here so this PC shows the real numbers with a "Running on the Pi" banner, never the empty
   // local view (server/engine/pi-mirror.mjs). Pull only; no writes to the Pi.
-  const piMirror = createPiMirror({ dataDir: DATA_DIR, source: piSource({ env: process.env, dataDir: DATA_DIR }), log });
+  // The Pi source is the app's own setting (settings.pi, set in Settings → Paper agents), with an env or
+  // legacy pi-source.json fallback. It is re-read whenever the settings change (see the settings PUT below).
+  const piMirror = createPiMirror({ dataDir: DATA_DIR, source: piSource({ env: process.env, dataDir: DATA_DIR, settings: host.settings }), log });
   const piMode = () => piMirror.configured && host.settings.runHere === false;
   let piView = null; // { agents } built on the mirror; stays null until the mirror has the Pi's data
   let piTimer = null;
@@ -291,9 +293,11 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
         return send(res, out.status, out.body);
       }
       if (url.pathname === '/api/pi' || url.pathname === '/api/pi/sync') {
-        if (url.pathname === '/api/pi/sync' && req.method === 'POST' && piMirror.configured) await piSync();
+        // Only actually pull from the Pi when the agents run there; while running locally a sync would
+        // spawn a needless tailscale ssh every minute.
+        if (url.pathname === '/api/pi/sync' && req.method === 'POST' && piMode() && runAgents) await piSync();
         const st = piMirror.status();
-        return send(res, 200, { runningOnPi: piMode(), configured: piMirror.configured, everSynced: st.everSynced, syncedAt: st.syncedAt, error: st.error, reachable: st.reachable, source: st.source });
+        return send(res, 200, { runningOnPi: piMode(), runHere: host.settings.runHere !== false, configured: piMirror.configured, everSynced: st.everSynced, syncedAt: st.syncedAt, error: st.error, reachable: st.reachable, source: st.source });
       }
       if (/^\/api\/(agents|alpaca|research|llm|connector)(\/|$)/.test(url.pathname)) {
         // Running on the Pi: the agents' read views come from the mirror, never the empty local host,
@@ -312,11 +316,23 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
             const body = out.body && typeof out.body === 'object' && !Array.isArray(out.body) ? { ...out.body, runningOnPi: true, syncedAt: st.syncedAt, syncError: st.error } : out.body;
             return send(res, out.status, body);
           }
-          if (req.method !== 'GET') return send(res, 409, { error: 'This view is read-only — the agents run on the Pi. Manage them on the Pi.', runningOnPi: true });
-          // other GETs (alpaca/research/llm/connector status) fall through to the local read below
+          // Everything is read-only while on the Pi EXCEPT the "Run agents on" control itself (settings),
+          // so the owner can always move the agents back to this PC from here.
+          const runLocationChange = req.method === 'PUT' && pr === '/api/agents/settings';
+          if (req.method !== 'GET' && !runLocationChange) return send(res, 409, { error: 'This view is read-only — the agents run on the Pi. Manage them on the Pi.', runningOnPi: true });
+          // the settings PUT and other GETs (alpaca/research/llm/connector status) fall through to the local read below
         }
         const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 32 * 1024) : null;
         const out = await agents.handle(req.method, url.pathname, headers, body, url.searchParams);
+        // The owner changed where agents run (or the Pi address): re-point the mirror at the current
+        // setting, and if we're now on the Pi, start a sync at once so the view fills in.
+        if (req.method === 'PUT' && url.pathname.replace(/\/+$/, '') === '/api/agents/settings' && out.status < 400) {
+          piMirror.setSource(piSource({ env: process.env, dataDir: DATA_DIR, settings: host.settings }));
+          if (piMode() && runAgents) {
+            piView = null;
+            piSync().catch(() => {});
+          }
+        }
         if (res.ftRemote && req.method !== 'GET') host.audit.write({ type: 'website-action', route: `${req.method} ${url.pathname}`, device: req.ftDevice });
         if (out.download) {
           res.writeHead(out.status, { ...securityHeaders(res.ftRemote), 'content-type': out.type, 'content-disposition': `attachment; filename="${out.download}"`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -348,8 +364,9 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   }
   // the agents start once the server has its address (they report through it)
   if (runAgents) host.start();
-  // mirror the Pi's data now and every minute while this PC is a viewer (runHere:false + a Pi source)
-  if (piMirror.configured && host.settings.runHere === false) {
+  // mirror the Pi's data now and every minute while this PC is a viewer (runHere:false + a Pi source).
+  // Gated on runAgents so the boot smoke / headless runs (agents off) never reach out to the Pi.
+  if (runAgents && piMirror.configured && host.settings.runHere === false) {
     void piSync();
     piTimer = setInterval(() => void piSync(), 60_000);
     piTimer.unref?.();

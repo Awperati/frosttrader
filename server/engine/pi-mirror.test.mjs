@@ -70,6 +70,30 @@ test('a source-less mirror never syncs and reports not reachable', async () => {
   assert.equal(st.syncedAt, null);
 });
 
+test('piSource reads the app settings, with env override and legacy pi-source.json fallback', () => {
+  const d = tmp();
+  assert.equal(piSource({ env: {}, dataDir: d, settings: { pi: { sshTarget: '', remoteDir: 'x' } } }), null, 'a blank ssh target means no Pi');
+  assert.deepEqual(piSource({ env: {}, dataDir: d, settings: { pi: { sshTarget: 's@h', remoteDir: 'r/d' } } }), { sshTarget: 's@h', remoteDir: 'r/d' });
+  // env beats the settings
+  assert.equal(piSource({ env: { FROSTTRADER_PI_SSH: 'e@h' }, dataDir: d, settings: { pi: { sshTarget: 's@h' } } }).sshTarget, 'e@h');
+  // falls back to the legacy file when no env and no settings
+  fs.writeFileSync(path.join(d, 'pi-source.json'), JSON.stringify({ sshTarget: 'file@h' }));
+  assert.equal(piSource({ env: {}, dataDir: d }).sshTarget, 'file@h');
+});
+
+test('setSource re-points the mirror and forgets a stale synced state', async () => {
+  const d = tmp();
+  const m = createPiMirror({ dataDir: d, source: { sshTarget: 'a@b', remoteDir: 'r' }, now: () => 5, pull: async ({ dir }) => fs.writeFileSync(path.join(dir, 'x'), '1'), log: {} });
+  await m.sync();
+  assert.equal(m.status().everSynced, true);
+  m.setSource({ sshTarget: 'c@d', remoteDir: 'r2' }); // a different Pi
+  assert.equal(m.configured, true);
+  assert.equal(m.status().everSynced, false, 'the synced state is forgotten for the new Pi');
+  assert.deepEqual(m.status().source, { sshTarget: 'c@d', remoteDir: 'r2' });
+  m.setSource(null); // no Pi
+  assert.equal(m.configured, false);
+});
+
 test('sync is single-flight: overlapping calls share one pull', async () => {
   const d = tmp();
   let calls = 0;

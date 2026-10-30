@@ -92,7 +92,7 @@ export class AgentHost {
    * getFx(): today's AUD → USD rate { rate, date, source } (data/fx.mjs), or null; refreshFx() updates it.
    * spawn(id): a child process (tests can pass a fake).
    */
-  constructor({ dataDir, getUniverse = () => [], getData = () => null, getOrders = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, live = null, notify = () => {}, log = console }) {
+  constructor({ dataDir, getUniverse = () => [], getData = () => null, getOrders = () => null, getFx = () => null, refreshFx = async () => {}, onDayEnd = () => {}, now = Date.now, spawn = spawnAgent, live = null, notify = () => {}, settingsDefaults = null, log = console }) {
     Object.assign(this, { dataDir, getUniverse, getData, getOrders, getFx, refreshFx, onDayEnd, now, spawn, log });
     // phone alerts: a failing alert never stops trading
     this.notify = (event, msg) => {
@@ -109,7 +109,9 @@ export class AgentHost {
     this.settingsFile = path.join(dataDir, 'agents-settings.json');
     this.stateFile = path.join(dataDir, 'agents-host.json');
     this.killFile = path.join(dataDir, 'KILL');
-    this.settings = cleanSettings(readJson(this.settingsFile) || {}, DEFAULT_SETTINGS);
+    // The desktop app passes settingsDefaults { runHere: false } so a FRESH install defaults to the Pi
+    // (it is the real runner); the Pi and tests pass nothing, keeping the engine default (runHere: true).
+    this.settings = cleanSettings(readJson(this.settingsFile) || {}, settingsDefaults ? { ...DEFAULT_SETTINGS, ...settingsDefaults } : DEFAULT_SETTINGS);
     this.state = { killed: false, killReason: '', killedAt: null, integrity: null, day: null, closedDay: null, poolPause: null, paused: null, lastTick: null, lastError: '', agents: {}, ...(readJson(this.stateFile) || {}) };
     for (const id of AGENT_IDS) this.state.agents[id] = { ...blankAgent(), ...(this.state.agents[id] || {}) };
     this.audit = new AuditLog({ dir: dataDir, now });
@@ -223,7 +225,7 @@ export class AgentHost {
     if (input?.runHere === false && this.settings.runHere !== false && Object.keys(this.holders()).length) {
       throw new Error('Move the agents to another computer only while no agent holds a position.');
     }
-    const merged = { ...this.settings, ...input, preset: { ...this.settings.preset, ...(input?.preset || {}) }, params: { ...this.settings.params }, strategies: { ...this.settings.strategies, ...(input?.strategies || {}) }, live: { ...this.settings.live, ...(input?.live || {}) } };
+    const merged = { ...this.settings, ...input, pi: { ...this.settings.pi, ...(input?.pi || {}) }, preset: { ...this.settings.preset, ...(input?.preset || {}) }, params: { ...this.settings.params }, strategies: { ...this.settings.strategies, ...(input?.strategies || {}) }, live: { ...this.settings.live, ...(input?.live || {}) } };
     for (const id of AGENT_IDS) merged.params[id] = { ...this.settings.params[id], ...(input?.params?.[id] || {}) };
     this.settings = cleanSettings(merged, this.settings);
     writeJson(this.settingsFile, this.settings);

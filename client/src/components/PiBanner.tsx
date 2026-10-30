@@ -27,7 +27,26 @@ export function PiBanner() {
       window.clearInterval(t);
     };
   }, []);
-  if (!st || !st.runningOnPi) return null;
+  if (!st) return null;
+  // Running locally on this PC: say so loudly, so an empty local view is never mistaken for the Pi's.
+  if (st.runHere) {
+    return (
+      <div className="pi-banner local" role="status">
+        <b>Agents are running on THIS PC</b>
+        <span> — local simulation. The Pi is the real runner. Switch in Settings → Paper agents → “Run agents on”.</span>
+      </div>
+    );
+  }
+  // Chose the Pi but gave no address: warn instead of silently showing the empty local numbers.
+  if (!st.configured) {
+    return (
+      <div className="pi-banner bad" role="status">
+        <b>No Pi address set</b>
+        <span> — you chose “The Pi” but set no address. Add it in Settings → Paper agents.</span>
+      </div>
+    );
+  }
+  if (!st.runningOnPi) return null;
   const when = st.syncedAt ? new Date(st.syncedAt).toLocaleTimeString() : null;
   const bad = !!st.error || st.reachable === false;
   return (

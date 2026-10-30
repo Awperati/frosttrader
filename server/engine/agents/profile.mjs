@@ -74,11 +74,22 @@ export const ORDER_MODES = Object.freeze(['sim', 'alpaca-paper']);
  */
 export const DEFAULT_LIVE = Object.freeze({ 'agent-a': false, 'agent-b': false, 'agent-c': false, 'agent-d': false });
 
+/**
+ * Where the agents really run (server/engine/pi-mirror.mjs): the Pi reaches its own data folder over
+ * tailscale ssh. The owner can change both in Settings → Paper agents; this is only the starting point.
+ * These values are not secrets (just an ssh target and a folder name).
+ */
+export const PI_DEFAULT = Object.freeze({ sshTarget: 'henwy@pihost', remoteDir: 'frosttrader/data' });
+
 export const DEFAULT_SETTINGS = Object.freeze({
   live: DEFAULT_LIVE,
-  // false: the agents run on another computer (the Pi, docs/PI.md) and this copy only shows its own
-  // data. Two copies trading at once would keep two sets of books for one Alpaca account.
+  // true: the agents run on THIS computer. The engine default stays true so the Pi (which IS the runner)
+  // and the tests run agents by default; the desktop app overrides it to false for a fresh install
+  // (startServer settingsDefaults), because there the Pi is the real runner and this PC only mirrors it.
+  // Two copies trading at once would keep two sets of books for one Alpaca account.
   runHere: true,
+  // The Pi this PC mirrors when runHere is false. Doing nothing while runHere is true.
+  pi: PI_DEFAULT,
   orders: 'sim',
   agentsAtOnce: MAX_AGENTS,
   paperPerAgent: PAPER_MONEY.start,
@@ -98,6 +109,11 @@ export function cleanSettings(input = {}, base = DEFAULT_SETTINGS) {
   const out = {
     live: {},
     runHere: typeof input.runHere === 'boolean' ? input.runHere : (base.runHere ?? true),
+    // The Pi source. An empty sshTarget means "no Pi set" (this PC only); the folder keeps a sane default.
+    pi: {
+      sshTarget: String(input.pi?.sshTarget ?? base.pi?.sshTarget ?? PI_DEFAULT.sshTarget).trim().slice(0, 200),
+      remoteDir: (String(input.pi?.remoteDir ?? base.pi?.remoteDir ?? PI_DEFAULT.remoteDir).trim() || PI_DEFAULT.remoteDir).slice(0, 200),
+    },
     orders: ORDER_MODES.includes(input.orders) ? input.orders : (base.orders ?? 'sim'),
     agentsAtOnce: Math.round(clamp(input.agentsAtOnce, [1, MAX_AGENTS], base.agentsAtOnce)),
     paperPerAgent: Math.round(clamp(input.paperPerAgent, [PAPER_MONEY.min, PAPER_MONEY.max], base.paperPerAgent) * 100) / 100,

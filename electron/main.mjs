@@ -103,7 +103,10 @@ export async function start() {
   app.setAppUserModelId('au.com.frosttechnology.frosttrader');
   const { dataDir } = appDirs({ appData: app.getPath('appData') });
   try {
-    server = await startServer({ dataDir, ports: portsToTry(), agents: !SELFTEST, finviz: !SELFTEST, tickerMirror: !SELFTEST && process.env.TICKER_MIRROR !== '0' });
+    // On the desktop the Pi is the real runner, so a fresh install defaults to "Run agents on: The Pi"
+    // (runHere:false). An existing install keeps whatever the owner saved. The Pi/server keep runHere:true.
+    // The boot smoke (SELFTEST) keeps the engine default so it renders the local view with no network pull.
+    server = await startServer({ dataDir, ports: portsToTry(), agents: !SELFTEST, finviz: !SELFTEST, tickerMirror: !SELFTEST && process.env.TICKER_MIRROR !== '0', settingsDefaults: SELFTEST ? null : { runHere: false } });
   } catch (err) {
     const why = err && err.message ? err.message : String(err);
     if (SELFTEST) console.log('SELFTEST ' + JSON.stringify({ error: `server: ${why}` }));

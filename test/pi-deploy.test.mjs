@@ -3,9 +3,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cleanSettings, DEFAULT_SETTINGS } from '../server/engine/agents/profile.mjs';
+import { cleanSettings, DEFAULT_SETTINGS, PI_DEFAULT } from '../server/engine/agents/profile.mjs';
+import { AgentHost } from '../server/engine/agents/host.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
@@ -31,4 +33,20 @@ test('settings: "Run the agents here" is on by default and only a real boolean c
   assert.equal(cleanSettings({}).runHere, true);
   assert.equal(cleanSettings({ runHere: false }).runHere, false);
   assert.equal(cleanSettings({ runHere: 'no' }).runHere, true);
+});
+
+test('settings: the Pi source defaults to the owner\'s Pi and the app can change it', () => {
+  assert.deepEqual(DEFAULT_SETTINGS.pi, PI_DEFAULT);
+  assert.deepEqual(cleanSettings({}).pi, { sshTarget: 'henwy@pihost', remoteDir: 'frosttrader/data' });
+  // the owner can point it elsewhere; a blank folder keeps a sane default; a blank ssh means "no Pi set"
+  assert.deepEqual(cleanSettings({ pi: { sshTarget: 'me@box', remoteDir: 'x/y' } }).pi, { sshTarget: 'me@box', remoteDir: 'x/y' });
+  assert.equal(cleanSettings({ pi: { sshTarget: 'me@box', remoteDir: '  ' } }).pi.remoteDir, 'frosttrader/data');
+  assert.equal(cleanSettings({ pi: { sshTarget: '' } }).pi.sshTarget, '');
+});
+
+test('the desktop app defaults a FRESH install to the Pi (settingsDefaults); the Pi/server keep running here', () => {
+  const desktop = new AgentHost({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'ft-desktop-')), settingsDefaults: { runHere: false }, log: { warn() {} } });
+  assert.equal(desktop.settings.runHere, false, 'a fresh desktop install mirrors the Pi');
+  const server = new AgentHost({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'ft-server-')), log: { warn() {} } });
+  assert.equal(server.settings.runHere, true, 'the Pi/server runs agents by default');
 });

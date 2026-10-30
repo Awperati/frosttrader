@@ -57,11 +57,42 @@ export function AgentsCard() {
     <section className="panel finviz" aria-labelledby="agents-h">
       <h2 id="agents-h">Paper agents</h2>
       <p className="small muted">Paper money only. These are not live limits, and live trading stays closed. The agents run by themselves; halts clear by themselves.</p>
-      <label className="field check">
-        <input type="checkbox" checked={s.runHere !== false} onChange={(e) => setS({ ...s, runHere: e.target.checked })} />
-        <span>Run the agents here</span>
-        <span className="small muted">Turn this off on the PC once the agents run on the Pi, so only one copy trades. Only while no agent holds a position.</span>
-      </label>
+      <div className="field-row">
+        <label className="field">
+          <span>Run agents on</span>
+          <select value={s.runHere === false ? 'pi' : 'pc'} onChange={(e) => setS({ ...s, runHere: e.target.value !== 'pi' })}>
+            <option value="pi">The Pi (the real runner)</option>
+            <option value="pc">This PC (local simulation)</option>
+          </select>
+          <span className="small muted">
+            The agents run in one place only, so one copy keeps the books. The Pi runs them around the clock and this PC shows the
+            Pi’s real numbers; pick “This PC” only to run a local simulation here. Change it only while no agent holds a position.
+          </span>
+        </label>
+        {s.runHere === false && (
+          <>
+            <label className="field">
+              <span>Pi address (ssh)</span>
+              <input
+                type="text"
+                value={s.pi?.sshTarget ?? ''}
+                placeholder="henwy@pihost"
+                onChange={(e) => setS({ ...s, pi: { sshTarget: e.target.value, remoteDir: s.pi?.remoteDir ?? 'frosttrader/data' } })}
+              />
+              <span className="small muted">Reached over Tailscale. Not a secret — just where to read the Pi’s numbers from.</span>
+            </label>
+            <label className="field">
+              <span>Pi data folder</span>
+              <input
+                type="text"
+                value={s.pi?.remoteDir ?? ''}
+                placeholder="frosttrader/data"
+                onChange={(e) => setS({ ...s, pi: { sshTarget: s.pi?.sshTarget ?? '', remoteDir: e.target.value } })}
+              />
+            </label>
+          </>
+        )}
+      </div>
       <div className="field-row">
         <label className="field">
           <span>Orders</span>

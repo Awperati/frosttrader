@@ -17,16 +17,20 @@ export const PULL = ['agents-host.json', 'agents-settings.json', 'allocations.js
 export const NEVER = ['alpaca-keys.json', 'finviz-token.json'];
 const shq = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 
-/** The Pi source, or null when none is set. Env wins, then DATA_DIR/pi-source.json. */
-export function piSource({ env = process.env, dataDir }) {
+/**
+ * The Pi source, or null when none is set. Precedence: env (FROSTTRADER_PI_SSH/DIR) wins, then the app's
+ * own settings (settings.pi, written by Settings → Paper agents — the real source of truth), then the
+ * legacy DATA_DIR/pi-source.json. An empty ssh target means "no Pi set".
+ */
+export function piSource({ env = process.env, dataDir, settings } = {}) {
   let j = null;
   try {
     j = JSON.parse(fs.readFileSync(path.join(dataDir, 'pi-source.json'), 'utf8'));
   } catch {
     /* none */
   }
-  const sshTarget = String(env.FROSTTRADER_PI_SSH || j?.sshTarget || '').trim();
-  const remoteDir = String(env.FROSTTRADER_PI_DIR || j?.remoteDir || 'frosttrader/data').trim();
+  const sshTarget = String(env.FROSTTRADER_PI_SSH || settings?.pi?.sshTarget || j?.sshTarget || '').trim();
+  const remoteDir = String(env.FROSTTRADER_PI_DIR || settings?.pi?.remoteDir || j?.remoteDir || 'frosttrader/data').trim();
   return sshTarget ? { sshTarget, remoteDir } : null;
 }
 
@@ -75,25 +79,38 @@ function defaultPull({ source, dir, timeoutMs = 60_000 }) {
  * The mirror. `source` is from piSource() (or null). `pull` is injectable for tests. A failed sync keeps
  * the previous good data and records the error (reachable:false); it never clears the mirror.
  */
-export function createPiMirror({ dataDir, source, now = Date.now, pull = defaultPull, log = console }) {
+export function createPiMirror({ dataDir, source = null, now = Date.now, pull = defaultPull, log = console }) {
   const dir = path.join(dataDir, 'pi-mirror');
+  let src = source;
   let state = { everSynced: false, syncedAt: null, error: null, reachable: null };
   let busy = null;
+  const same = (a, b) => (a?.sshTarget || '') === (b?.sshTarget || '') && (a?.remoteDir || '') === (b?.remoteDir || '');
   return {
     get configured() {
-      return !!source;
+      return !!src;
+    },
+    get source() {
+      return src;
+    },
+    // Point the mirror at a (possibly new) Pi — the owner changed "Run agents on" in Settings. Changing the
+    // target forgets the reachable/synced state so the banner never shows a stale "synced" for the old Pi.
+    setSource(next) {
+      const n = next && next.sshTarget ? { sshTarget: next.sshTarget, remoteDir: next.remoteDir } : null;
+      if (!same(n, src)) state = { everSynced: false, syncedAt: null, error: null, reachable: null };
+      src = n;
+      return src;
     },
     dir,
     status() {
-      return { ...state, source: source ? { sshTarget: source.sshTarget, remoteDir: source.remoteDir } : null };
+      return { ...state, source: src ? { sshTarget: src.sshTarget, remoteDir: src.remoteDir } : null };
     },
     sync() {
-      if (!source) return Promise.resolve(state);
+      if (!src) return Promise.resolve(state);
       if (busy) return busy; // one sync at a time
       busy = (async () => {
         fs.mkdirSync(dir, { recursive: true });
         try {
-          await pull({ source, dir });
+          await pull({ source: src, dir });
           state = { everSynced: true, syncedAt: now(), error: null, reachable: true };
         } catch (e) {
           state = { everSynced: state.everSynced, syncedAt: state.syncedAt, error: String(e?.message || e).slice(0, 300), reachable: false };

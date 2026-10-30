@@ -96,7 +96,8 @@ export type Preset = { name: string; riskPerTrade: number; maxPositionPct: numbe
 export type AgentParams = { entryScore: number; stopAtr: number; targetAtr: number; maxHold: number };
 export type Strategy = 'signals' | 'v11';
 export type OrderMode = 'sim' | 'alpaca-paper';
-export type AgentSettings = { live?: Record<string, boolean>; runHere: boolean; orders: OrderMode; agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams>; strategies: Record<string, Strategy> };
+export type PiSource = { sshTarget: string; remoteDir: string };
+export type AgentSettings = { live?: Record<string, boolean>; runHere: boolean; pi: PiSource; orders: OrderMode; agentsAtOnce: number; paperPerAgent: number; preset: Preset; params: Record<string, AgentParams>; strategies: Record<string, Strategy> };
 export type ModelInfo = { threshold: number; exit: { kind: 'pct' | 'atr'; stop: number; maxHold: number }; universe: string[]; test: { trades: number; win_rate: number; avg_bps: number } | null; testPeriod: string | null; error?: string };
 export type Fill = { t: number; symbol: string; side: 'buy' | 'sell'; qty: number; price: number; pnl: number; why: string };
 export type AgentView = {
@@ -254,6 +255,7 @@ const json = (method: string, body: unknown): RequestInit => ({ method, headers:
 
 export type PiStatus = {
   runningOnPi: boolean;
+  runHere: boolean;
   configured: boolean;
   everSynced: boolean;
   syncedAt: number | null;
