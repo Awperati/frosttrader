@@ -5,6 +5,7 @@ import { Settings } from './pages/Settings';
 import { Portfolio } from './pages/Portfolio';
 import { api, SIGN_IN_EVENT, type AuthStatus } from './api';
 import { SignIn } from './pages/SignIn';
+import { PiBanner } from './components/PiBanner';
 
 // The app's screens (docs/APP-DESIGN.md). Built: Stock numbers, Paper portfolio and Settings; the
 // others are listed so the layout is settled, and say which stage brings them.
@@ -151,6 +152,7 @@ function Main({ remote }: { remote: boolean }) {
           </button>
         ) : null}
       </header>
+      <PiBanner />
       <main>
         {screen === 'numbers' ? (
           <StockNumbers />

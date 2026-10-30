@@ -32,6 +32,7 @@ import { Research } from './engine/research/nightly.mjs';
 import { ModelIdeas } from './engine/research/hypotheses.mjs';
 import { ConnectorToken, createConnector } from './connector.mjs';
 import { BarsRefresher } from './engine/data/refresh-bars.mjs';
+import { piSource, createPiMirror } from './engine/pi-mirror.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const HOST = '127.0.0.1';
@@ -181,6 +182,31 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   const agents = createAgentsApi({ host, keys: alpacaKeys, research, ideas, connectorToken, port: () => port });
   const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => ({ ...finvizSource.status(), holders: host.holders() }) });
 
+  // When the agents run on the Pi (runHere:false) and a Pi source is set, mirror the Pi's READ-ONLY
+  // data here so this PC shows the real numbers with a "Running on the Pi" banner, never the empty
+  // local view (server/engine/pi-mirror.mjs). Pull only; no writes to the Pi.
+  const piMirror = createPiMirror({ dataDir: DATA_DIR, source: piSource({ env: process.env, dataDir: DATA_DIR }), log });
+  const piMode = () => piMirror.configured && host.settings.runHere === false;
+  let piView = null; // { agents } built on the mirror; stays null until the mirror has the Pi's data
+  let piTimer = null;
+  const rebuildPiView = () => {
+    try {
+      const piFx = new FxRate({ dataDir: piMirror.dir });
+      const piHost = new AgentHost({ dataDir: piMirror.dir, getUniverse: () => [], getData: () => null, getFx: () => piFx.current(), refreshFx: async () => {}, spawn: () => ({ on() {}, send() {}, kill() {} }), log });
+      piView = { agents: createAgentsApi({ host: piHost, keys: { set: false, status: () => ({ set: false }) }, research: null, ideas: null, connectorToken: null, port: () => port }) };
+    } catch (e) {
+      log.warn?.(`pi-mirror: couldn't read the mirror: ${e.message}`);
+      piView = null;
+    }
+  };
+  const piSync = async () => {
+    const st = await piMirror.sync();
+    if (st.everSynced && !st.error) rebuildPiView();
+    return st;
+  };
+  // show last-run data straight away on a restart, before the first fresh sync
+  if (fs.existsSync(path.join(piMirror.dir, 'agents-host.json'))) rebuildPiView();
+
   function serveStatic(res, pathname) {
     const rel = decodeURIComponent(pathname).replace(/^\/+/, '') || 'index.html';
     let file = path.resolve(DIST, rel);
@@ -264,7 +290,31 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
         if (req.method !== 'GET') host.audit.write({ type: 'live-request', route: `${req.method} ${url.pathname}`, status: out.status, via: res.ftRemote ? `website ${req.ftDevice}` : 'this computer' });
         return send(res, out.status, out.body);
       }
+      if (url.pathname === '/api/pi' || url.pathname === '/api/pi/sync') {
+        if (url.pathname === '/api/pi/sync' && req.method === 'POST' && piMirror.configured) await piSync();
+        const st = piMirror.status();
+        return send(res, 200, { runningOnPi: piMode(), configured: piMirror.configured, everSynced: st.everSynced, syncedAt: st.syncedAt, error: st.error, reachable: st.reachable, source: st.source });
+      }
       if (/^\/api\/(agents|alpaca|research|llm|connector)(\/|$)/.test(url.pathname)) {
+        // Running on the Pi: the agents' read views come from the mirror, never the empty local host,
+        // and nothing here can write to the Pi.
+        const piReads = new Set(['/api/agents', '/api/agents/decisions', '/api/agents/summary', '/api/agents/stats', '/api/agents/export']);
+        if (piMode()) {
+          const pr = url.pathname.replace(/\/+$/, '');
+          if (req.method === 'GET' && piReads.has(pr)) {
+            const st = piMirror.status();
+            if (!piView) return send(res, 503, { error: st.error ? `The Pi is unreachable: ${st.error}` : 'Running on the Pi — syncing, try again in a moment.', runningOnPi: true, syncedAt: st.syncedAt, syncError: st.error });
+            const out = await piView.agents.handle(req.method, url.pathname, headers, null, url.searchParams);
+            if (out.download) {
+              res.writeHead(out.status, { ...securityHeaders(res.ftRemote), 'content-type': out.type, 'content-disposition': `attachment; filename="${out.download}"`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+              return res.end(out.body);
+            }
+            const body = out.body && typeof out.body === 'object' && !Array.isArray(out.body) ? { ...out.body, runningOnPi: true, syncedAt: st.syncedAt, syncError: st.error } : out.body;
+            return send(res, out.status, body);
+          }
+          if (req.method !== 'GET') return send(res, 409, { error: 'This view is read-only — the agents run on the Pi. Manage them on the Pi.', runningOnPi: true });
+          // other GETs (alpaca/research/llm/connector status) fall through to the local read below
+        }
         const body = req.method === 'PUT' || req.method === 'POST' ? await readJson(req, 32 * 1024) : null;
         const out = await agents.handle(req.method, url.pathname, headers, body, url.searchParams);
         if (res.ftRemote && req.method !== 'GET') host.audit.write({ type: 'website-action', route: `${req.method} ${url.pathname}`, device: req.ftDevice });
@@ -288,6 +338,7 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     host.stop();
     finvizSource.stop();
     mirror?.stop();
+    clearInterval(piTimer);
   };
   try {
     port = await listenOn(server, ports);
@@ -297,12 +348,19 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   }
   // the agents start once the server has its address (they report through it)
   if (runAgents) host.start();
+  // mirror the Pi's data now and every minute while this PC is a viewer (runHere:false + a Pi source)
+  if (piMirror.configured && host.settings.runHere === false) {
+    void piSync();
+    piTimer = setInterval(() => void piSync(), 60_000);
+    piTimer.unref?.();
+  }
   return {
     server,
     port,
     url: `http://${HOST}:${port}`,
     dataDir: DATA_DIR,
     host,
+    piMirror,
     notifier,
     stop: () =>
       new Promise((resolve) => {

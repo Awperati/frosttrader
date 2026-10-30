@@ -241,3 +241,8 @@ td.left { text-align: left; white-space: normal; }
   .field-row, .preset-grid { display: flex; flex-direction: column; }
   input, select, button { font-size: 16px; } /* no zoom-on-focus on iPhone */
 }
+
+/* "Running on the Pi" banner: this PC is a read-only viewer of the Pi's numbers. */
+.pi-banner { padding: 8px 16px; font-size: 14px; background: #123a5e; color: #cfe3ff; border-bottom: 1px solid #1d4e7a; }
+.pi-banner.bad { background: #5e2b12; color: #ffd9c7; border-bottom-color: #7a3a1d; }
+.pi-banner b { color: inherit; }

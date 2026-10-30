@@ -241,7 +241,19 @@ export type AuthStatus = { website: boolean; remote: boolean; host: string | nul
 const sym = (s: string) => encodeURIComponent(s);
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
+export type PiStatus = {
+  runningOnPi: boolean;
+  configured: boolean;
+  everSynced: boolean;
+  syncedAt: number | null;
+  error: string | null;
+  reachable: boolean | null;
+  source: { sshTarget: string; remoteDir: string } | null;
+};
+
 export const api = {
+  pi: () => call<PiStatus>('/api/pi'),
+  piSync: () => call<PiStatus>('/api/pi/sync', json('POST', {})),
   overview: () => call<Overview>('/api/numbers'),
   downloadDataset: () => call<{ ok: true; saved: { rows: number; symbols: number; from: string; to: string }; overview: Overview }>('/api/numbers/dataset/download', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   detail: (symbol: string, range: string) => call<Detail>(`/api/numbers/${sym(symbol)}?range=${encodeURIComponent(range)}`),
