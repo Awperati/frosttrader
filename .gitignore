@@ -3,6 +3,12 @@ client/dist
 /data
 server/data/
 .env
+# Data the tools write/mutate — keep it out of git so an auto-update pull never clashes with it.
+# (fetch-fresh-bars appends to ALL_STOCKS_5m_iex.csv + dated .bak; the walk-forward writes wf_*.json.)
+stock_ohlcv/ALL_STOCKS_5m_iex.csv
+stock_ohlcv/*.bak.csv
+wf_*.json
+__pycache__/
 *.log
 *.jks
 *.keystore
