@@ -52,7 +52,9 @@ function defaultPull({ source, dir, timeoutMs = 60_000 }) {
       clearTimeout(timer);
       out.end(() => {
         if (code !== 0) return reject(new Error(`tailscale ssh exit ${code}: ${err.slice(0, 200)}`));
-        const x = spawn('tar', ['-xzf', tgz, '-C', dir], { windowsHide: true });
+        // Extract with a relative archive name from cwd=dir: a Windows path like C:\... on tar's command
+        // line is misread by GNU tar as a remote host:path (the drive-letter colon), so keep colons off it.
+        const x = spawn('tar', ['-xzf', path.basename(tgz)], { cwd: dir, windowsHide: true });
         let xe = '';
         x.stderr.on('data', (d) => (xe += d));
         x.on('error', reject);
