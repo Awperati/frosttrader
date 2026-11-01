@@ -16,7 +16,7 @@ import { SimBroker } from '../server/engine/broker/sim.mjs';
 import { cleanSettings, limitsFor, MEDIUM, DEFAULT_SETTINGS, AGENT_IDS } from '../server/engine/agents/profile.mjs';
 import { checkAgentMessage } from '../server/engine/agents/ipc.mjs';
 import { AuditLog } from '../server/engine/agents/audit.mjs';
-import { AgentHost, childOptions, spawnAgent, SIT_OUT_DAYS, CLEAN_DAYS_TO_FULL } from '../server/engine/agents/host.mjs';
+import { AgentHost, childOptions, spawnAgent, SIT_OUT_DAYS, CLEAN_DAYS_TO_FULL, SKIP_LOG_MS } from '../server/engine/agents/host.mjs';
 import { AlpacaData } from '../server/engine/data/alpaca-data.mjs';
 import { AlpacaKeys } from '../server/alpaca-keys.mjs';
 import { createAgentsApi } from '../server/agents-api.mjs';
@@ -607,5 +607,34 @@ test('host: bars are fetched once in full, then only what is new; unfinished bar
   now += 5 * MIN;
   await host.fetchBars(data, ['AAPL'], now);
   assert.ok(calls[1].start > now - 3600_000, 'only the recent part');
+  host.stop();
+});
+
+test('host: a tick that does nothing says why, once per reason (and again after SKIP_LOG_MS), and a working tick clears it', async () => {
+  const { host, clock } = makeHost();
+  const lines = [];
+  host.log.warn = (m) => lines.push(m);
+  const skips = () => lines.filter((l) => /tick skipped/.test(l));
+  clock.t = Date.parse('2026-10-21T20:30:00Z'); // 16:30 New York: closed
+  for (let i = 0; i < 5; i++) {
+    await host.tick();
+    clock.t += MIN;
+  }
+  assert.equal(skips().length, 1, 'five closed ticks, one line');
+  assert.match(skips()[0], /market closed \(Wed 2026-10-21 New York\)/);
+  assert.match(host.state.lastSkip.reason, /market closed/);
+  clock.t += SKIP_LOG_MS;
+  await host.tick();
+  assert.equal(skips().length, 2, 'the same reason again after SKIP_LOG_MS');
+  host.kill('test');
+  await host.tick();
+  assert.equal(skips().length, 3, 'a new reason is logged at once');
+  assert.match(skips()[2], /killed: test/);
+  assert.match(host.state.lastSkip.reason, /killed: test/);
+  host.resume();
+  clock.t = T0 + 24 * 3600_000; // Thursday 11:00 New York: a working tick
+  await host.tick();
+  assert.equal(host.state.lastSkip, null, 'a tick that ran clears the skip');
+  assert.equal(skips().length, 3);
   host.stop();
 });

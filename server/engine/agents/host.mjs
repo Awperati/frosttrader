@@ -59,6 +59,7 @@ export const TIMING = Object.freeze({
   modelHistoryMs: 18 * 86_400_000, // v11: about two weeks of bars (relative volume looks back 10 days)
   modelBarsKept: 1200,
 });
+export const SKIP_LOG_MS = 6 * 3600_000; // the same skip reason is logged again after this long
 export const SIT_OUT_DAYS = 2; // the halted day itself plus the next trading day
 // the owner (27 Oct 2026): "10 paper days before live to get an idea of the general scope and direction
 // of how the models will perform"
@@ -567,26 +568,37 @@ export class AgentHost {
     return this.busy.then(() => this.status());
   }
 
+  /** Why this tick did nothing: logged when the reason changes, else again after SKIP_LOG_MS; kept in the state file too. */
+  #skip(reason) {
+    const now = this.now();
+    const seen = this.skipNote;
+    this.state.lastSkip = { at: now, reason };
+    if (seen && seen.reason === reason && now - seen.at < SKIP_LOG_MS) return;
+    this.skipNote = { reason, at: now };
+    this.log.warn?.(`agents: tick skipped, ${reason}`);
+  }
+
   async #tick() {
     const now = this.now();
     this.beat = now; // the watchdog (server/index.mjs) restarts the server if this stops moving
     if (fs.existsSync(this.killFile) && !this.state.killed) this.kill('KILL file found in the data folder');
-    if (this.state.killed || this.state.integrity) return;
+    if (this.state.killed) return this.#skip(`killed: ${this.state.killReason || 'kill switch on'}`);
+    if (this.state.integrity) return this.#skip(`integrity halt: ${this.state.integrity.reason || 'stopped until the owner resumes'}`);
     if (this.settings.runHere === false) {
       for (const id of [...this.children.keys()]) this.stopChild(id);
       this.state.lastError = 'The agents run on another computer (Settings → Paper agents → Run the agents here is off).';
-      return;
+      return this.#skip('run here is off');
     }
     const clock = nyClock(now);
     if (!marketOpen(now)) {
       if (this.state.day && this.state.closedDay !== this.state.day && (clock.day !== this.state.day || clock.minute >= closeMinute(clock.day))) this.endDay(this.state.day);
       for (const id of [...this.children.keys()]) this.stopChild(id);
-      return;
+      return this.#skip(`market closed (${clock.weekday} ${clock.day} New York)`);
     }
     await this.refreshFx();
     if (!this.getFx()) {
       this.state.lastError = 'No AUD → US dollar rate yet (or it is over 5 days old): the agents wait.';
-      return;
+      return this.#skip('no AUD to US dollar rate');
     }
     if (this.state.day !== clock.day) this.startDay(clock.day);
     // after a restart in the middle of a day the books start the day again from their equity now
@@ -599,12 +611,12 @@ export class AgentHost {
     this.orders = this.settings.orders === 'alpaca-paper' ? this.getOrders() : null;
     if (this.settings.orders === 'alpaca-paper' && !this.orders) {
       this.state.lastError = 'Orders are set to go to the Alpaca paper account, but no paper keys are saved: the agents wait.';
-      return;
+      return this.#skip('orders need paper keys');
     }
     const data = this.getData();
     if (!data) {
       this.state.lastError = 'No Alpaca paper keys yet: the agents wait for market data (Settings → Alpaca paper keys).';
-      return;
+      return this.#skip('no market data keys');
     }
     const universe = new Set(this.getUniverse().filter((s) => STOCK.test(s)).slice(0, 40));
     const held = Object.keys(this.holders());
@@ -613,13 +625,18 @@ export class AgentHost {
     const anyV11 = this.running().some((id) => this.strategyOf(id) === 'v11');
     if (!symbols.length && !anyV11) {
       this.state.lastError = 'The watchlist is empty: add a Finviz screener in Settings.';
-      return;
+      return this.#skip('watchlist is empty');
     }
     const before = this.reconcile() || (this.orders ? await this.reconcileAccount().catch((e) => `the paper account could not be read: ${e.message}`) : '');
-    if (before) return this.integrityHalt(before);
+    if (before) {
+      this.#skip(`integrity halt: ${before}`);
+      return this.integrityHalt(before);
+    }
     const bars = await this.fetchBars(data, symbols, now);
     this.state.lastError = '';
     this.state.lastTick = now;
+    this.state.lastSkip = null;
+    this.skipNote = null;
 
     // exits and marks, for every agent (running or not: no position is left unmanaged)
     for (const [id, sb] of this.manager.sandboxes) {
