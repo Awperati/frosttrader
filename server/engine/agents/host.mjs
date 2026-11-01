@@ -103,6 +103,7 @@ export class AgentHost {
         /* dropped */
       }
     };
+    this.tiers = null; // the overseer (overseer.mjs) attaches itself: a reduced agent trades at half size, a retired one is not run
     this.live = live; // the live desk (REAL money), or null; it trades only after the owner's signed enablement
     this.orders = null; // the Alpaca paper order client while settings.orders is "alpaca-paper"
     this.inflight = new Set(); // paper orders still on their way
@@ -164,7 +165,20 @@ export class AgentHost {
   }
 
   running() {
-    return AGENT_IDS.slice(0, this.settings.agentsAtOnce).filter((id) => this.sandbox(id));
+    return AGENT_IDS.slice(0, this.settings.agentsAtOnce).filter((id) => this.sandbox(id) && this.tierOf(id) !== 'retired');
+  }
+
+  /** 'active', 'reduced' or 'retired' (the overseer's paper tier). */
+  tierOf(id) {
+    return this.tiers?.tierOf(id) ?? 'active';
+  }
+
+  /** The overseer changed a tier: new size limits, and a retired agent's process stops (its positions still exit). */
+  applyTiers() {
+    for (const id of AGENT_IDS) {
+      if (this.sandbox(id)) this.applyLimits(id);
+      if (this.tierOf(id) === 'retired') this.stopChild(id);
+    }
   }
 
   /** 'signals' or 'v11' (profile.mjs STRATEGIES). */
@@ -238,7 +252,7 @@ export class AgentHost {
 
   applyLimits(id) {
     const sb = this.sandbox(id);
-    if (sb) sb.setLimits(limitsFor(sb.allocation, this.settings.preset, this.state.agents[id].scale));
+    if (sb) sb.setLimits(limitsFor(sb.allocation, this.settings.preset, Math.min(this.state.agents[id].scale, this.tiers?.cap(id) ?? 1)));
   }
 
   /** The owner's kill switch: flatten everything, stop every agent, until the owner resumes. */
@@ -980,6 +994,7 @@ export class AgentHost {
         live: this.settings.live?.[id] === true,
         paperDays: this.paperDays(id).length,
         paperDaysNeeded: PAPER_DAYS_BEFORE_LIVE,
+        tier: this.tierOf(id),
         limits: sb?.guard.limits ?? null,
         lastProposals: a.lastProposals,
         lastDecision: a.lastDecision,

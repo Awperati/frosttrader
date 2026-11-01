@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type AgentsStatus, type AgentView, type ApiError } from '../api';
 import { num, signed, tone } from '../format';
-import { DaySummaryCard, DecisionLog, ExportLinks, StatsView, nyToday } from './AgentInsight';
+import { DaySummaryCard, OverseerCard, DecisionLog, ExportLinks, StatsView, nyToday } from './AgentInsight';
 import { ResearchView } from './Research';
 
 // Paper portfolio: one card per paper agent (server/engine/agents/host.mjs), the kill switch state and
@@ -136,6 +136,10 @@ export function Portfolio() {
       <div className="panel">
         <h3>Day summary, {day}</h3>
         <DaySummaryCard day={day} />
+      </div>
+      <div className="panel">
+        <h3>Overseer, {day}</h3>
+        <OverseerCard day={day} />
       </div>
       <div className="facts">
         <div>

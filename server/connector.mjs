@@ -76,13 +76,14 @@ export const TOOLS = [
   { name: 'frosttrader_stats', description: 'Results by signal, symbol, half hour and exit reason over the last N days. Past results only.', inputSchema: S({ agent: agentProp, days: { type: 'integer', minimum: 1, maximum: 365 } }), annotations: { readOnlyHint: true } },
   { name: 'frosttrader_decisions', description: 'The plain-language decision log of a day: what each agent bought, sold, refused, and why.', inputSchema: S({ day: { type: 'string' }, agent: agentProp, limit: { type: 'integer', minimum: 1, maximum: 100 }, include_passes: { type: 'boolean', description: 'Also the symbols it looked at and passed on.' } }), annotations: { readOnlyHint: true } },
   { name: 'frosttrader_research', description: 'The last nightly research: each agent\'s decision and the rule behind it, recent setting changes.', inputSchema: S({}), annotations: { readOnlyHint: true } },
+  { name: 'frosttrader_overseer', description: 'The end-of-day overseer: a verdict per agent (fine / watch / demoted / retired) with the reason, what each agent did and was refused, and each agent tier. Paper only; read-only.', inputSchema: S({ day: { type: 'string', description: 'YYYY-MM-DD; the newest report if left out.' } }), annotations: { readOnlyHint: true } },
   { name: 'frosttrader_stop', description: 'Stop new buys for all paper agents. Exits and halts keep running; nothing is sold. Undo with frosttrader_start.', inputSchema: S({}), annotations: { readOnlyHint: false, destructiveHint: false } },
   { name: 'frosttrader_start', description: 'Undo frosttrader_stop. Does not clear the kill switch (only FrostTrader\'s own screen can).', inputSchema: S({}), annotations: { readOnlyHint: false, destructiveHint: false } },
   { name: 'frosttrader_kill', description: 'The kill switch: sell every paper position and stop every agent until the owner resumes on FrostTrader\'s own screen.', inputSchema: S({ reason: { type: 'string', maxLength: 200 } }, ['reason']), annotations: { readOnlyHint: false, destructiveHint: true } },
   { name: 'refresh_bars', description: 'Fetch the latest 5-minute IEX bars after the newest one already saved and append them to the training bars file (market data only; no orders). Rate-limited to once every 5 minutes, skipped when the newest bar is under 5 minutes old.', inputSchema: S({}), annotations: { readOnlyHint: false, destructiveHint: false } },
 ];
 
-export function createConnector({ host, research = null, refresher = null, token, now = Date.now, limitPerMin = 60 }) {
+export function createConnector({ host, research = null, overseer = null, refresher = null, token, now = Date.now, limitPerMin = 60 }) {
   const hits = [];
   const today = () => nyClock(now()).day;
   const dayArg = (v) => {
@@ -130,6 +131,10 @@ export function createConnector({ host, research = null, refresher = null, token
       if (!research) return { note: 'Research is not running on this server.' };
       const st = research.status();
       return { lastRun: st.lastRun, agents: st.agents.map((x) => ({ agent: x.id, settings: x.params, lastNight: x.lastResult ? { day: x.lastResult.day, decision: x.lastResult.decision } : null })), recentChanges: st.history.slice(0, 10) };
+    },
+    frosttrader_overseer: (a) => {
+      if (!overseer) return { note: 'The overseer is not running on this server.' };
+      return overseer.status(a.day == null || a.day === '' ? null : dayArg(a.day));
     },
     frosttrader_stop: () => (host.pauseBuying('Frost AI connector'), { stopped: 'new buys are stopped; exits keep running' }),
     frosttrader_start: () => {

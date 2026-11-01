@@ -153,6 +153,8 @@ export type TradeBrief = { symbol: string; signal: string; pnlUsd: number; pnlAu
 export type Tally = { trades: number; wins: number; winRate: number | null; pnlUsd: number; pnlAud: number; avgAud: number | null; best: TradeBrief; worst: TradeBrief };
 export type DaySummary = { day: string; agents: (Tally & { agent: string; halts: string[]; considered: number; refusals: Record<string, number> })[]; all: Tally & { halts: number } };
 export type Group = Tally & { key: string };
+export type OverseerAgent = { agent: string; tier: 'active' | 'reduced' | 'retired'; verdict: 'fine' | 'watch' | 'demoted' | 'retired'; reason: string; text: string };
+export type OverseerStatus = { lastRun: { day: string; at: number } | null; tiers: { id: string; tier: 'active' | 'reduced' | 'retired'; reducedUntil: string | null }[]; report: { day: string; text: string; agents: OverseerAgent[] } | null };
 export type AgentStats = { from: string; agent: string | null; all: Tally; bySignal: Group[]; bySymbol: Group[]; byTime: Group[]; byExit: Group[] };
 
 export type Combined = { n: number; pnl: number; expectancy: number; maxDrawdown: number; maxDrawdownPct: number; last: number };
@@ -299,6 +301,8 @@ export const api = {
   resume: () => call<AgentsStatus>('/api/agents/resume', json('POST', {})),
   decisions: (day: string, agent = '') => call<{ day: string; decisions: Decision[] }>(`/api/agents/decisions?${new URLSearchParams({ day, ...(agent ? { agent } : {}), limit: '500' })}`),
   summary: (day: string) => call<DaySummary>(`/api/agents/summary?day=${day}`),
+  overseer: (day: string) => call<OverseerStatus>(`/api/overseer?day=${day}`),
+  undoOverseer: (agent: string) => call<OverseerStatus>('/api/overseer/undo', json('POST', { agent })),
   stats: (agent = '', days = 30) => call<AgentStats>(`/api/agents/stats?${new URLSearchParams({ days: String(days), ...(agent ? { agent } : {}) })}`),
   exportUrl: (what: 'trades' | 'decisions' | 'days', format: 'csv' | 'json', from: string, to: string) => `/api/agents/export?${new URLSearchParams({ what, format, from, to })}`,
   connector: () => call<ConnectorStatus>('/api/connector'),

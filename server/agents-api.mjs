@@ -13,6 +13,9 @@
 //   GET  /api/research             the nightly research: last run, each agent's result, history
 //   POST /api/research/run         run it now (on the bars already stored and any new ones)
 //   POST /api/research/rollback    { agent }   back to the settings before its latest promotion
+//   GET  /api/overseer             ?day=   the overseer's report (newest if no day): a verdict per agent and each agent's tier
+//   POST /api/overseer/run         { day? }   judge a day now (not while the market is open)
+//   POST /api/overseer/undo        { agent }   undo the overseer's latest tier change for that agent
 //   GET  /api/llm                  the local model's research ideas: on/off, address, model, key set, last run
 //   PUT  /api/llm                  { enabled?, url?, model?, key?, clearKey? }   key write-only
 //   POST /api/llm/test             one tiny request to the local model
@@ -28,7 +31,7 @@ import { HttpError } from './store.mjs';
 import { checkLocal } from './finviz-api.mjs';
 import { AGENT_IDS } from './engine/agents/profile.mjs';
 import { toCsv, TRADE_COLUMNS, DECISION_COLUMNS } from './engine/agents/journal.mjs';
-import { nyClock } from './engine/stats.mjs';
+import { nyClock, marketOpen } from './engine/stats.mjs';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_EXPORT_DAYS = 31;
@@ -47,7 +50,7 @@ function daysBetween(from, to) {
 }
 
 // port: the server's port, or a function returning it (the Windows app's server may get another port when 8787 is taken)
-export function createAgentsApi({ host, keys, research = null, ideas = null, connectorToken = null, port = 8787, now = Date.now }) {
+export function createAgentsApi({ host, keys, research = null, overseer = null, ideas = null, connectorToken = null, port = 8787, now = Date.now }) {
   const portNow = () => (typeof port === 'function' ? port() : port);
   const today = () => nyClock(now()).day;
   const dayParam = (q, name, fallback) => {
@@ -136,6 +139,23 @@ export function createAgentsApi({ host, keys, research = null, ideas = null, con
           if (!research) throw new HttpError(404, 'Not found');
           if (!AGENT_IDS.includes(body?.agent)) throw new HttpError(400, 'Unknown agent');
           return { status: 200, body: bad(() => research.rollback(body.agent)) };
+        case 'GET /api/overseer':
+          if (!overseer) throw new HttpError(404, 'Not found');
+          return { status: 200, body: overseer.status(dayParam(query, 'day', null)) };
+        case 'POST /api/overseer/run': {
+          local();
+          if (!overseer) throw new HttpError(404, 'Not found');
+          const day = body?.day == null ? today() : body.day;
+          if (typeof day !== 'string' || !DAY.test(day)) throw new HttpError(400, 'day must be YYYY-MM-DD');
+          if (marketOpen(now())) throw new HttpError(409, 'The overseer runs after the close.');
+          overseer.run(day);
+          return { status: 200, body: overseer.status(day) };
+        }
+        case 'POST /api/overseer/undo':
+          local();
+          if (!overseer) throw new HttpError(404, 'Not found');
+          if (!AGENT_IDS.includes(body?.agent)) throw new HttpError(400, 'Unknown agent');
+          return { status: 200, body: bad(() => overseer.undo(body.agent)) };
         case 'GET /api/llm':
           if (!ideas) throw new HttpError(404, 'Not found');
           return { status: 200, body: ideas.status() };

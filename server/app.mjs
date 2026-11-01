@@ -27,6 +27,7 @@ import { Auth } from './auth.mjs';
 import { createTotp } from './totp.mjs';
 import { loadModel } from './engine/models/v11.mjs';
 import { createAgentsApi } from './agents-api.mjs';
+import { Overseer } from './engine/agents/overseer.mjs';
 import { FxRate } from './engine/data/fx.mjs';
 import { Research } from './engine/research/nightly.mjs';
 import { ModelIdeas } from './engine/research/hypotheses.mjs';
@@ -174,12 +175,21 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
   // his local model's research ideas (Frost AI on this computer): OFF until he switches it on in Settings
   const ideas = new ModelIdeas({ dataDir: DATA_DIR });
   const research = new Research({ dataDir: DATA_DIR, host, getData: () => alpacaKeys.client(), ideas });
-  host.onDayEnd = (day) => research.run(day, finvizSource.symbols());
+  // the overseer (agents/overseer.mjs) judges the day after the nightly research; no model, no orders
+  const overseer = new Overseer({ dataDir: DATA_DIR, host });
+  host.onDayEnd = async (day) => {
+    await research.run(day, finvizSource.symbols());
+    try {
+      overseer.run(day);
+    } catch (e) {
+      log.warn?.(`overseer: ${e.message}`);
+    }
+  };
   // the Frost AI connector (MCP at /mcp): read tools plus stop/start/kill, behind a token made in Settings
   const connectorToken = new ConnectorToken({ dataDir: DATA_DIR });
   const refresher = new BarsRefresher({ dataDir: DATA_DIR, getData: () => alpacaKeys.client() });
-  const connector = createConnector({ host, research, refresher, token: connectorToken });
-  const agents = createAgentsApi({ host, keys: alpacaKeys, research, ideas, connectorToken, port: () => port });
+  const connector = createConnector({ host, research, overseer, refresher, token: connectorToken });
+  const agents = createAgentsApi({ host, keys: alpacaKeys, research, overseer, ideas, connectorToken, port: () => port });
   const numbers = createNumbersApi({ dataDir: DATA_DIR, watchlist: () => ({ ...finvizSource.status(), holders: host.holders() }) });
 
   // When the agents run on the Pi (runHere:false) and a Pi source is set, mirror the Pi's READ-ONLY
@@ -299,7 +309,7 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
         const st = piMirror.status();
         return send(res, 200, { runningOnPi: piMode(), runHere: host.settings.runHere !== false, configured: piMirror.configured, everSynced: st.everSynced, syncedAt: st.syncedAt, error: st.error, reachable: st.reachable, source: st.source });
       }
-      if (/^\/api\/(agents|alpaca|research|llm|connector)(\/|$)/.test(url.pathname)) {
+      if (/^\/api\/(agents|alpaca|research|overseer|llm|connector)(\/|$)/.test(url.pathname)) {
         // Running on the Pi: the agents' read views come from the mirror, never the empty local host,
         // and nothing here can write to the Pi.
         const piReads = new Set(['/api/agents', '/api/agents/decisions', '/api/agents/summary', '/api/agents/stats', '/api/agents/export']);

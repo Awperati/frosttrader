@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type AgentStats, type DaySummary, type Decision, type Group, type Tally } from '../api';
+import { api, type AgentStats, type DaySummary, type OverseerStatus, type Decision, type Group, type Tally } from '../api';
 import { num, signed, tone } from '../format';
 
 // Reading the paper agents' behaviour (server/engine/agents/journal.mjs): the day's summary, the
@@ -64,6 +64,28 @@ export function DaySummaryCard({ day }: { day: string }) {
           {row('All', data.all, { halts: data.all.halts })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** The end-of-day overseer's verdict per agent (server/engine/agents/overseer.mjs). Paper only. */
+export function OverseerCard({ day }: { day: string }) {
+  const [tick, setTick] = useState(0);
+  const [msg, setMsg] = useState('');
+  const { data, err } = useLoad<OverseerStatus>(() => api.overseer(day), [day, tick]);
+  if (err) return <p className="error small">{err}</p>;
+  if (!data) return <p className="muted small">Loading…</p>;
+  if (!data.report) return <p className="muted small">No overseer report for {day} yet. It is written after the close.</p>;
+  const undo = (agent: string) => api.undoOverseer(agent).then(() => setTick((n) => n + 1), (e) => setMsg((e as Error).message));
+  return (
+    <div>
+      {data.report.agents.map((a) => (
+        <p key={a.agent} className="small">
+          <strong>{a.agent}</strong> <span className={a.verdict === 'fine' ? 'muted' : ''}>[{a.verdict}]</span> {a.text.slice(a.agent.length + 2)}{' '}
+          {a.tier !== 'active' && <button onClick={() => undo(a.agent)}>Undo {a.tier}</button>}
+        </p>
+      ))}
+      {msg && <p className="error small">{msg}</p>}
     </div>
   );
 }
