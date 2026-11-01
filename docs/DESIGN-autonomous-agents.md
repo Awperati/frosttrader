@@ -328,7 +328,7 @@ agents tuned by the loop above can be backtested and are the recommended first l
 | From → to | Rule (all must hold) |
 |---|---|
 | research → paper | walk-forward: ≥ 100 trades, expectancy after costs > 0 with t-stat above the multiple-testing threshold, max drawdown ≤ 15 %, beats parent and rule-only baselines; holdout: ≥ 30 trades, expectancy > 0; 2× slippage stress still > 0; stability check |
-| paper → live-tiny | live enablement exists; ≥ 20 trading days and ≥ 30 trades in paper on the *same version*; paper expectancy > 0 and within the walk-forward's 90 % band (if paper is much worse, the backtest was wrong); 0 gate bypasses, 0 integrity issues; fewer than `maxLiveAgents` already live; allocation = `liveTinyAllocation` |
+| paper → live-tiny | live enablement exists; ≥ 10 trading days and ≥ 30 trades in paper on the *same version*; paper expectancy > 0 and within the walk-forward's 90 % band (if paper is much worse, the backtest was wrong); 0 gate bypasses, 0 integrity issues; fewer than `maxLiveAgents` already live; allocation = `liveTinyAllocation` |
 | live-tiny → live, and each scale-up | ≥ `scaleEveryDays` trading days and ≥ 20 trades since the last change; live slippage measured and ≤ 2× the research assumption; live expectancy > 0; allocation × ≤ `scaleStepMax`, never above `perAgentMax`, and the sum never above `totalLiveCapital` |
 
 ### 3.5 Demotion (automatic)
@@ -482,10 +482,10 @@ identical results); a planted overfit (pure noise data) is **rejected** by the r
 seeded runs; promotion decisions replay identically from the logs.
 
 **Stage 3: paper, forward, sim broker on live Alpaca data** (data key only, no order calls). Several
-agents, each with its own ledger. Exit: 20 trading days, ≥ 95 % cycles completed, audit chain valid
+agents, each with its own ledger. Exit: 10 trading days, ≥ 95 % cycles completed, audit chain valid
 daily, 0 cross-agent ledger errors, kill tested in market hours.
 
-**Stage 4: Alpaca paper.** Same, on the paper account(s), with virtual sub-ledgers. Exit: 20 trading
+**Stage 4: Alpaca paper.** Same, on the paper account(s), with virtual sub-ledgers. Exit: 10 trading
 days, every fill reconciled and attributed, 0 symbol-lock violations, idempotency tested (retry never
 double-submits).
 
@@ -531,7 +531,7 @@ unreconciled fills, live slippage measured.
 - **Integrity halts need him.** A ledger mismatch or a broker key error stops live until he looks.
   Auto-resuming from those would mean trading on books we know are wrong. Kept.
 - **His kill needs him to resume.** Kept, by definition.
-- **Per-version paper records** slow every improvement by ≥ 20 trading days before real money. That
+- **Per-version paper records** slow every improvement by ≥ 10 trading days before real money. That
   is the price of evidence the model can't have memorised. Kept.
 - **The DSL can't express new signals.** Agents can't invent new kinds of pattern, only combine and
   tune the coded ones; new ones need a Builder. Kept: generated code in the trading path is not
