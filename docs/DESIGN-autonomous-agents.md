@@ -550,8 +550,12 @@ None of these needs him per trade.
 | `server/engine/agents/knowledge.mjs` | `KnowledgeStore`: hash-chained `findings.jsonl`; `publish`, `recordValidation` (pass decided by `passesValidation` rules in code), `adopt` (only after the adopter's own passing validation), `verify` (chain check). |
 | `server/engine/agents/*.test.mjs` | Isolation and validation tests (no network, no keys, temp folders). |
 
-Not built: agent child processes, IPC, the gate's check 17 inside `risk.mjs`, live sub-ledgers,
-research loop, API and connector. No broker file was changed.
+Not built when this was written (23 Oct 2026): agent child processes, IPC, the gate's check 17 inside
+`risk.mjs`, live sub-ledgers, research loop, API and connector. No broker file was changed.
+Found in the code on 2 Nov 2026 (searched, not re-tested end to end): child processes and IPC
+(`agents/agent-runner.mjs`, `process.send`), check 17 `AGENT_CAPITAL` (`risk.mjs`), per-agent paper
+ledgers (`agents/sandbox.mjs`), and the research API (`/api/research/run`, `/api/research/rollback`
+in `agents-api.mjs`). Live-money sub-ledgers stay closed until the owner's Stage 5 enablement.
 
 Run: `node --test server/engine/agents/*.test.mjs` (Node 24): 13 tests. They use temp folders only,
 no network and no keys. (The older `sim.test.mjs` and `backtest.test.mjs` fail to import in a clean
