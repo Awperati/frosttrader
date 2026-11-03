@@ -7,6 +7,7 @@
 //   POST /api/live/keys/test       read the account once (no order)
 //   POST /api/live/enable          { password, code, phrase, limits, confirmed: [every limit key] }
 //   POST /api/live/lower           { limits }   lower only, no step-up needed (the safe direction)
+//   GET  /api/live/results         closed live P&L (A$ and US$) per agent and total, open positions, last 20 fills, broker cash
 //   POST /api/live/paper-days      { days, password, code }   set the paper-day check (0 to 10) in place
 //   POST /api/live/disable         switch live off: the enablement is set aside and every live position closed
 //   POST /api/live/resume          { password, code }   after a stop (kill switch, integrity, drawdown)
@@ -35,10 +36,12 @@ export function createLiveApi({ desk, keys, enablement, auth = null, getFx = () 
   return {
     async handle(method, pathname, headers = {}, body = null, ip = '') {
       const route = `${method} ${pathname.replace(/\/+$/, '')}`;
-      if (route !== 'GET /api/live') checkLocal(headers);
+      if (route !== 'GET /api/live' && route !== 'GET /api/live/results') checkLocal(headers);
       switch (route) {
         case 'GET /api/live':
           return { status: 200, body: status() };
+        case 'GET /api/live/results':
+          return { status: 200, body: desk.results() };
         case 'PUT /api/live/keys':
           // live keys are typed only on this computer (or through the SSH tunnel), never over the website
           if (headers[AUTHED] === true) throw new HttpError(403, 'Save live keys from your PC through the SSH tunnel, not over the website.');

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type AgentView, type LiveLimits, type LiveStatus } from '../api';
+import { LiveResultsCard } from './LiveResults';
 
 // Settings → Live trading (REAL money). Off until the owner saves his live key pair, checks the
 // account, confirms every limit and types the phrase with his password and code. The server checks
@@ -67,6 +68,13 @@ export function LiveCard() {
       </p>
       <p className="small muted">{st.funding} Live buys are by dollar amount (fractional), regular hours only, inside your limits; exits, halts and the kill switch work as on paper. Nothing here is advice.</p>
       {st.lastError ? <p className="small error">{st.lastError}</p> : null}
+
+      {st.enabled ? (
+        <>
+          <h3>Live results</h3>
+          <LiveResultsCard />
+        </>
+      ) : null}
 
       <h3>1. Live key pair</h3>
       <p className="small muted">Your LIVE key pair from Alpaca (the key ID starts with AK). Saved only on this computer, never shown again, never in a log.</p>

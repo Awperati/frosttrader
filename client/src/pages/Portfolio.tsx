@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type AgentsStatus, type AgentView, type ApiError } from '../api';
 import { num, signed, tone } from '../format';
+import { LiveResultsCard } from './LiveResults';
 import { DaySummaryCard, OverseerCard, DecisionLog, ExportLinks, StatsView, nyToday } from './AgentInsight';
 import { ResearchView } from './Research';
 
@@ -137,6 +138,12 @@ export function Portfolio() {
         <h3>Day summary, {day}</h3>
         <DaySummaryCard day={day} />
       </div>
+      {st.live?.enabled ? (
+        <div className="panel">
+          <h3>Live results (real money)</h3>
+          <LiveResultsCard />
+        </div>
+      ) : null}
       <div className="panel">
         <h3>Overseer, {day}</h3>
         <OverseerCard day={day} />

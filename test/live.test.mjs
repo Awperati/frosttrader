@@ -12,7 +12,7 @@ import { EventEmitter } from 'node:events';
 import { LiveKeys } from '../server/live-keys.mjs';
 import { AlpacaLive, LIVE_HOST } from '../server/engine/broker/alpaca-live.mjs';
 import { Enablement, LIVE_PROPOSED, LIVE_HARD, phraseFor } from '../server/engine/live/enablement.mjs';
-import { LiveDesk, accountProblem } from '../server/engine/live/desk.mjs';
+import { LiveDesk, accountProblem, rebuildFills } from '../server/engine/live/desk.mjs';
 import { createLiveApi } from '../server/live-api.mjs';
 import { Auth } from '../server/auth.mjs';
 import { AgentHost } from '../server/engine/agents/host.mjs';
@@ -456,4 +456,54 @@ test('paper days in place: one call with his password and code lowers it to 0 an
   } finally {
     await s.fl.close();
   }
+});
+
+test('live results: each live fill is recorded with A$ and US$, P&L per agent and total, last fills, broker cash; no order from reading', async () => {
+  const s = await liveHost({ script: (m) => (m.t === T0 ? [v11buy('FLEX', 0.65)] : []) });
+  try {
+    const api = createLiveApi({ desk: s.desk, keys: liveKeysFor(s.dir, s.fl.base), enablement: s.desk.enablement, auth: null });
+    assert.equal((await api.handle('GET', '/api/live/results', {}, null)).body.lastFills.length, 0, 'no fills yet');
+    await s.host.tick();
+    s.clock.t += 5 * MIN;
+    s.market.last.FLEX = { o: 60, h: 60, l: 50, c: 50 };
+    s.fl.fillPrice = 50;
+    await s.host.tick();
+    const posts = s.fl.seen.filter((r) => r.method === 'POST').length;
+    const r = (await api.handle('GET', '/api/live/results', {}, null)).body; // GET needs no local-page check
+    assert.equal(s.fl.seen.filter((x) => x.method === 'POST').length, posts, 'reading results placed no order');
+    assert.equal(r.lastFills.length, 2);
+    assert.deepEqual(r.lastFills.map((f) => f.side), ['sell', 'buy'], 'newest first');
+    const sell = r.lastFills[0];
+    assert.ok(sell.pnlAud < 0 && sell.pnlUsd < 0 && sell.aud > 0 && sell.usd > 0, 'a loss in both currencies');
+    assert.ok(Math.abs(sell.pnlAud - s.desk.state.agents['agent-a'].realizedAud) < 1e-9, 'same number as the desk ledger');
+    const a = r.agents.find((x) => x.id === 'agent-a');
+    assert.equal(a.total.trades, 1);
+    assert.equal(a.today.trades, 1);
+    assert.equal(r.total.trades, 1);
+    assert.ok(Math.abs(r.total.pnlAud - sell.pnlAud) < 1e-9);
+    assert.ok(r.cash && r.cash.usd >= 0 && r.cash.aud > 0, 'broker cash in US$ and A$');
+    assert.deepEqual(a.positions, [], 'nothing open');
+    const raw = JSON.stringify(r);
+    assert.ok(!raw.includes(KEY) && !raw.includes(SECRET), 'no key in the answer');
+  } finally {
+    s.host.stop();
+    await s.fl.close();
+  }
+});
+
+test('live results: without a fills file the history is rebuilt from the audit log live-fill lines (FIFO, approximate A$)', () => {
+  const at = (t) => `2026-11-05T14:${t}:00.000Z`;
+  const lines = [
+    { type: 'live-order', agent: 'agent-a', side: 'buy', symbol: 'FLEX', rate: 0.7, clientOrderId: 'c1' },
+    { type: 'live-fill', at: at('01'), agent: 'agent-a', side: 'buy', symbol: 'FLEX', qty: 2, price: 50, usd: 100, clientOrderId: 'c1' },
+    { type: 'live-order', agent: 'agent-a', side: 'sell', symbol: 'FLEX', qty: 1, clientOrderId: 'c2' },
+    { type: 'live-fill', at: at('30'), agent: 'agent-a', side: 'sell', symbol: 'FLEX', qty: 1, price: 55, usd: 55, clientOrderId: 'c2' },
+    { type: 'live-fill', at: at('45'), agent: 'agent-a', side: 'sell', symbol: 'FLEX', qty: 1, price: 40, usd: 40, clientOrderId: 'c3' },
+  ];
+  const f = rebuildFills(lines);
+  assert.equal(f.length, 3);
+  assert.ok(f.every((x) => x.approx));
+  assert.ok(Math.abs(f[1].pnlUsd - 5) < 1e-9 && Math.abs(f[2].pnlUsd + 10) < 1e-9, 'half the lot each: +5 then -10');
+  assert.ok(Math.abs(f[1].pnlAud - 5 / 0.7) < 1e-9);
+  assert.equal(f[0].day, '2026-11-05');
 });

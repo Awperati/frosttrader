@@ -181,6 +181,20 @@ export type LlmStatus = { enabled: boolean; url: string; model: string; keySet: 
 export type ConnectorStatus = { url: string; set: boolean; created: string | null; lastUsed: string | null; token?: string; shownOnce?: boolean };
 
 export type LiveLimits = { perAgentAud: number; totalAud: number; perOrderAud: number; buysPerDay: number; perAgentDayAud: number; allDayAud: number; agentDailyLossAud: number; allDailyLossAud: number; agentDrawdownAud: number; totalDrawdownAud: number; paperDays: number };
+export type LiveFill = { t: number; day: string; agent: string; side: 'buy' | 'sell'; symbol: string; qty: number; price: number; usd: number; aud?: number; rate?: number; pnlAud?: number; pnlUsd?: number; approx?: boolean };
+export type LiveTally = { trades: number; wins: number; pnlAud: number; pnlUsd: number };
+export type LiveResults = {
+  day: string;
+  enabled: boolean;
+  stopped: { reason: string; at: number } | null;
+  rate: number | null;
+  today: LiveTally;
+  total: LiveTally;
+  agents: { id: string; today: LiveTally; total: LiveTally; positions: { symbol: string; qty: number; costAud: number; costUsd: number }[]; exposureAud: number; boughtTodayAud: number; halt: unknown }[];
+  cash: { usd: number; aud: number | null; at: number | null } | null;
+  lastFills: LiveFill[];
+  approx: boolean;
+};
 export type LiveStatus = {
   enabled: boolean;
   enabledAt: string | null;
@@ -293,6 +307,7 @@ export const api = {
   saveLiveKeys: (keyId: string, secret: string) => call<LiveStatus>('/api/live/keys', json('PUT', { keyId, secret })),
   testLiveKeys: () => call<LiveStatus>('/api/live/keys/test', json('POST', {})),
   enableLive: (b: { password: string; code: string; phrase: string; limits: LiveLimits; confirmed: string[]; cashAccount: boolean }) => call<LiveStatus>('/api/live/enable', json('POST', b)),
+  liveResults: () => call<LiveResults>('/api/live/results'),
   setPaperDays: (days: number, password: string, code: string) => call<LiveStatus>('/api/live/paper-days', json('POST', { days, password, code })),
   lowerLive: (limits: LiveLimits) => call<LiveStatus>('/api/live/lower', json('POST', { limits })),
   disableLive: () => call<LiveStatus>('/api/live/disable', json('POST', {})),

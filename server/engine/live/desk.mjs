@@ -78,6 +78,8 @@ export class LiveDesk {
       }
     };
     this.file = path.join(dataDir, 'live-state.json');
+    this.fillsFile = path.join(dataDir, 'live', 'fills.jsonl'); // one line per live fill with its A$ and US$ result
+    this.auditFile = path.join(dataDir, 'audit.jsonl');
     this.state = { agents: {}, pending: {}, unsettled: [], dayTrades: [], seq: 0, day: null, allHalt: null, stopped: null, peakTotalAud: null, account: null, lastError: '', ...(readJson(this.file) || {}) };
   }
 
@@ -353,12 +355,14 @@ export class LiveDesk {
       return;
     }
     const usd = qty * px;
+    let fillRec = null;
     if (pend.side === 'buy') {
       const p = (a.positions[pend.symbol] ??= { qty: 0, costUsd: 0, costAud: 0, day: pend.day });
       p.qty = Math.round((p.qty + qty) * 1e9) / 1e9;
       p.costUsd += usd;
       p.costAud += usd / pend.rate; // AUD at fill-time cost: a later rate move frees nothing
       if (a.day) a.day.boughtAud += usd / pend.rate - pend.aud; // the actual fill, not the estimate
+      fillRec = { aud: usd / pend.rate, rate: pend.rate };
     } else {
       const p = a.positions[pend.symbol];
       if (!p) return;
@@ -367,6 +371,7 @@ export class LiveDesk {
       const rate = this.rate()?.rate ?? pend.rate ?? (p.costUsd / p.costAud);
       const proceedsAud = usd / rate;
       a.realizedAud += proceedsAud - costAud;
+      fillRec = { aud: proceedsAud, rate, pnlAud: proceedsAud - costAud, pnlUsd: usd - p.costUsd * share };
       this.state.unsettled.push({ agent: pend.agent, aud: proceedsAud, usd, settles: nextBusinessDay(pend.day) });
       if (p.day === pend.day) this.state.dayTrades.push({ day: pend.day, symbol: pend.symbol, agent: pend.agent });
       p.qty = Math.round((p.qty - qty) * 1e9) / 1e9;
@@ -378,10 +383,61 @@ export class LiveDesk {
       }
     }
     this.audit.write({ type: 'live-fill', agent: pend.agent, side: pend.side, symbol: pend.symbol, qty, price: px, usd: Number(usd.toFixed(4)), clientOrderId, status: o.status });
+    this.recordFill({ t: this.now(), day: pend.day, agent: pend.agent, side: pend.side, symbol: pend.symbol, qty, price: px, usd: Number(usd.toFixed(4)), ...fillRec });
     const rateNow = pend.rate || this.rate()?.rate;
     const aud = rateNow ? `A$${(usd / rateNow).toFixed(2)}` : `US$${usd.toFixed(2)}`;
     const pnl = pend.side === 'sell' ? ` (agent's live result so far A$${a.realizedAud.toFixed(2)})` : '';
     this.notify('fill', { title: `${pend.agent} ${pend.side === 'buy' ? 'bought' : 'sold'} ${pend.symbol}`, message: `${pend.agent} ${pend.side === 'buy' ? 'bought' : 'sold'} ${pend.symbol} for ${aud} (live)${pnl}.` });
+  }
+
+  /** Append one live fill (A$ and US$) to DATA_DIR/live/fills.jsonl. Never throws: results must not stop trading. */
+  recordFill(rec) {
+    try {
+      fs.mkdirSync(path.dirname(this.fillsFile), { recursive: true });
+      fs.appendFileSync(this.fillsFile, `${JSON.stringify(rec)}\n`);
+    } catch (e) {
+      this.log.warn?.(`live: fills file: ${e.message}`);
+    }
+  }
+
+  /**
+   * The live fills, oldest first. Without the file (live fills from before it existed) they are rebuilt
+   * from the audit log's live-fill lines: buys at their order's rate, sells at the last buy rate of that
+   * agent, FIFO cost per agent and symbol; those lines carry approx: true.
+   */
+  fills() {
+    const read = readLines(this.fillsFile);
+    if (read.length || fs.existsSync(this.fillsFile)) return read;
+    return rebuildFills(readLines(this.auditFile));
+  }
+
+  /** What the owner sees: per agent and total closed result (A$ with US$), open positions, last fills, broker cash. */
+  results(today = nyClock(this.now()).day) {
+    const fills = this.fills();
+    const rate = this.rate()?.rate ?? null;
+    const sells = fills.filter((f) => f.side === 'sell');
+    const sum = (list, k) => list.reduce((s, f) => s + (f[k] ?? 0), 0);
+    const one = (list) => ({ trades: list.length, wins: list.filter((f) => f.pnlAud > 0).length, pnlAud: sum(list, 'pnlAud'), pnlUsd: sum(list, 'pnlUsd') });
+    const st = this.status();
+    const ids = [...new Set([...Object.keys(this.state.agents), ...fills.map((f) => f.agent)])].sort();
+    const agents = ids.map((id) => {
+      const mine = sells.filter((f) => f.agent === id);
+      const live = st.agents.find((x) => x.id === id);
+      return { id, today: one(mine.filter((f) => f.day === today)), total: one(mine), positions: live?.positions ?? [], exposureAud: live?.exposureAud ?? 0, boughtTodayAud: live?.boughtTodayAud ?? 0, halt: live?.halt ?? null };
+    });
+    const cashUsd = st.broker?.cash ?? null;
+    return {
+      day: today,
+      enabled: st.enabled,
+      stopped: st.stopped,
+      rate,
+      today: one(sells.filter((f) => f.day === today)),
+      total: one(sells),
+      agents,
+      cash: cashUsd == null ? null : { usd: cashUsd, aud: rate ? cashUsd / rate : null, at: st.broker?.at ?? null },
+      lastFills: fills.slice(-20).reverse(),
+      approx: fills.some((f) => f.approx),
+    };
   }
 
   async manageExit(b, id, a, symbol, list, fx, day) {
@@ -527,6 +583,66 @@ export function accountProblem(acct, last4) {
   if (acct.multiplier && acct.multiplier !== '1') return `the account is a margin account (multiplier ${acct.multiplier})`;
   if (acct.shorting) return 'the account allows shorting (margin)';
   return '';
+}
+
+function readLines(file) {
+  try {
+    return fs
+      .readFileSync(file, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Live fills from the audit log's lines (approximate A$: see LiveDesk.fills). */
+export function rebuildFills(lines) {
+  const rate = {}; // client order id -> rate, and agent -> last buy rate
+  const open = {}; // agent|symbol -> [{ qty, usd, aud }]
+  const out = [];
+  const day = (at) => nyClock(Date.parse(at)).day;
+  for (const e of lines) {
+    if (e.type === 'live-order' && e.side === 'buy') {
+      rate[e.clientOrderId] = e.rate;
+      rate[e.agent] = e.rate;
+    } else if (e.type === 'live-fill') {
+      const r = e.side === 'buy' ? rate[e.clientOrderId] ?? rate[e.agent] : rate[e.agent];
+      if (!(r > 0)) continue;
+      const rec = { t: Date.parse(e.at), day: day(e.at), agent: e.agent, side: e.side, symbol: e.symbol, qty: e.qty, price: e.price, usd: e.usd, aud: e.usd / r, rate: r, approx: true };
+      const k = `${e.agent}|${e.symbol}`;
+      if (e.side === 'buy') (open[k] ??= []).push({ qty: e.qty, usd: e.usd, aud: e.usd / r });
+      else {
+        let left = e.qty;
+        let cu = 0;
+        let ca = 0;
+        while (left > 1e-9 && open[k]?.length) {
+          const lot = open[k][0];
+          const take = Math.min(lot.qty, left);
+          const share = take / lot.qty;
+          cu += lot.usd * share;
+          ca += lot.aud * share;
+          lot.usd -= lot.usd * share;
+          lot.aud -= lot.aud * share;
+          lot.qty -= take;
+          left -= take;
+          if (lot.qty <= 1e-9) open[k].shift();
+        }
+        rec.pnlUsd = e.usd - cu;
+        rec.pnlAud = rec.aud - ca;
+      }
+      out.push(rec);
+    }
+  }
+  return out;
 }
 
 function readJson(file) {
