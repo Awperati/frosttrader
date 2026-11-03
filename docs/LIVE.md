@@ -21,8 +21,9 @@ a trade. Nothing here is advice.
   days on paper on the Pi. Settings → Live trading shows each agent's count (for example "6 of 10").
   On 4 Nov you said "Remove the paper day check limit", so this is now one of your limits ("Paper trading
   days an agent needs before it can go live"): 10 by default, 0 to 10. Setting it to 0 means no paper-day
-  check, and the live code has never traded on real Alpaca. Setting it lower needs switching live on again
-  (password, code, tick); setting it higher can be done at any time.
+  check, and the live code has never traded on real Alpaca. While live is on, change it in place in
+  Settings → Live trading → "Paper days before an agent can go live" → "Save paper-day change": only your
+  password and a fresh 6-digit code, in either direction, no switching off and on.
 - **Regular hours only**, while you sleep (00:30–07:00 Brisbane from 1 Nov). A watchdog restarts
   FrostTrader if its once-a-minute tick stops for 5 minutes; Docker restarts it after a crash or a Pi
   reboot. Any difference between the books and the account stops live at once.

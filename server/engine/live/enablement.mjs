@@ -148,6 +148,24 @@ export class Enablement {
     return this.write({ account: cur.account, limits: next, confirmed: cur.confirmed, rate: cur.rate, cashAccount: cur.cashAccount });
   }
 
+  /**
+   * Set the paper-day requirement in place (0 to 10, either way). The caller has already checked his
+   * password and code. Everything else in the signed record stays as it is; it is only re-signed.
+   */
+  setPaperDays(days) {
+    const cur = this.read();
+    if (!cur) throw new Error('Live trading is not enabled.');
+    const n = Number(days);
+    if (!Number.isInteger(n) || n < 0 || n > LIVE_HARD.paperDays) throw new Error(`${LIMIT_LABELS.paperDays} must be a whole number from 0 to ${LIVE_HARD.paperDays}.`);
+    const { sig: _old, ...rec } = cur;
+    rec.limits = { ...cur.limits, paperDays: n };
+    rec.sig = this.sign(rec);
+    const tmp = `${this.file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(rec, null, 1), { mode: 0o600 });
+    fs.renameSync(tmp, this.file);
+    return this.read();
+  }
+
   /** Switch live off: the file is kept beside, renamed, for the record. */
   revoke(reason) {
     if (!fs.existsSync(this.file)) return;

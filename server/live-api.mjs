@@ -7,6 +7,7 @@
 //   POST /api/live/keys/test       read the account once (no order)
 //   POST /api/live/enable          { password, code, phrase, limits, confirmed: [every limit key] }
 //   POST /api/live/lower           { limits }   lower only, no step-up needed (the safe direction)
+//   POST /api/live/paper-days      { days, password, code }   set the paper-day check (0 to 10) in place
 //   POST /api/live/disable         switch live off: the enablement is set aside and every live position closed
 //   POST /api/live/resume          { password, code }   after a stop (kill switch, integrity, drawdown)
 //
@@ -86,6 +87,18 @@ export function createLiveApi({ desk, keys, enablement, auth = null, getFx = () 
           }
           desk.audit.write({ type: 'live-lower', limits: enablement.read()?.limits });
           return { status: 200, body: status() };
+        case 'POST /api/live/paper-days': {
+          // the owner's one-step change of the paper-day check, in place: his password and a fresh code only
+          await stepUp(ip, body);
+          const before = enablement.read()?.limits?.paperDays;
+          try {
+            enablement.setPaperDays(body?.days);
+          } catch (e) {
+            throw new HttpError(400, e.message);
+          }
+          desk.audit.write({ type: 'live-paper-days', from: before, to: enablement.read()?.limits?.paperDays });
+          return { status: 200, body: status() };
+        }
         case 'POST /api/live/disable':
           await desk.stopAll('the owner switched live off');
           enablement.revoke('owner switched live off');

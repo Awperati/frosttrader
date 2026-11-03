@@ -293,6 +293,7 @@ export const api = {
   saveLiveKeys: (keyId: string, secret: string) => call<LiveStatus>('/api/live/keys', json('PUT', { keyId, secret })),
   testLiveKeys: () => call<LiveStatus>('/api/live/keys/test', json('POST', {})),
   enableLive: (b: { password: string; code: string; phrase: string; limits: LiveLimits; confirmed: string[]; cashAccount: boolean }) => call<LiveStatus>('/api/live/enable', json('POST', b)),
+  setPaperDays: (days: number, password: string, code: string) => call<LiveStatus>('/api/live/paper-days', json('POST', { days, password, code })),
   lowerLive: (limits: LiveLimits) => call<LiveStatus>('/api/live/lower', json('POST', { limits })),
   disableLive: () => call<LiveStatus>('/api/live/disable', json('POST', {})),
   resumeLive: (password: string, code: string) => call<LiveStatus>('/api/live/resume', json('POST', { password, code })),

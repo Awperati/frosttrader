@@ -19,6 +19,7 @@ export function LiveCard() {
   const [agents, setAgents] = useState<Record<string, boolean> | null>(null);
   const [views, setViews] = useState<AgentView[]>([]);
   const [cash, setCash] = useState(false);
+  const [pdays, setPdays] = useState<number | null>(null);
 
   useEffect(() => {
     api.live().then((s) => (setSt(s), setLimits(s.limits ?? s.proposed)), (e) => setErr((e as Error).message));
@@ -33,7 +34,8 @@ export function LiveCard() {
       setSt(s);
       setLimits(s.limits ?? s.proposed);
       if (label === 'keys') (setKeyId(''), setSecret(''));
-      if (label === 'enable' || label === 'resume') (setPassword(''), setCode(''), setPhrase(''));
+      if (label === 'enable' || label === 'resume' || label === 'paperdays') (setPassword(''), setCode(''), setPhrase(''), setPdays(null));
+      if (label === 'paperdays') api.agents().then((a) => setViews(a.agents), () => {});
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -132,11 +134,10 @@ export function LiveCard() {
         <>
           <h3>Your limits</h3>
           <div className="preset-grid">
-            {keys.map((k) => (
+            {keys.filter((k) => k !== 'paperDays').map((k) => (
               <label key={k} className="field">
                 <span>{st.labels[k]}</span>
-                <input type="number" min={k === 'paperDays' ? st.limits![k] : 0} step={k === 'buysPerDay' || k === 'paperDays' ? 1 : 0.05} max={k === 'paperDays' ? st.hard[k] : st.limits![k]} value={limits[k]} onChange={(e) => setLimits({ ...limits, [k]: Number(e.target.value) })} />
-                {k === 'paperDays' ? <span className="small muted">{st.limits![k] === 0 ? 'no paper-day check: the live code has never traded on real Alpaca. ' : ''}You can only raise this here; lowering it means switching live on again.</span> : null}
+                <input type="number" min={0} step={k === 'buysPerDay' ? 1 : 0.05} max={st.limits![k]} value={limits[k]} onChange={(e) => setLimits({ ...limits, [k]: Number(e.target.value) })} />
               </label>
             ))}
           </div>
@@ -146,6 +147,28 @@ export function LiveCard() {
             </button>
             <button className="danger" onClick={() => window.confirm('Switch live off? Every live position is sold now.') && run('disable', () => api.disableLive())} disabled={!!busy}>
               Switch live off (closes every live position)
+            </button>
+          </div>
+          <h3>Paper days before an agent can go live</h3>
+          <p className="small muted">Now {st.limits!.paperDays}. Pick 0 to 10, type your FrostTrader password and a fresh 6-digit code, and save. Nothing else changes and live stays on.</p>
+          {pdays === 0 || (pdays === null && st.limits!.paperDays === 0) ? <p className="small error">No paper-day check: the live code has never traded on real Alpaca.</p> : null}
+          <div className="field-row">
+            <label className="field">
+              <span>Paper days (0 to {st.hard.paperDays})</span>
+              <input type="number" min={0} max={st.hard.paperDays} step={1} value={pdays ?? st.limits!.paperDays} onChange={(e) => setPdays(Number(e.target.value))} />
+            </label>
+            <label className="field">
+              <span>Your FrostTrader password</span>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
+            </label>
+            <label className="field">
+              <span>6-digit code</span>
+              <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" />
+            </label>
+          </div>
+          <div className="row">
+            <button onClick={() => run('paperdays', () => api.setPaperDays(pdays ?? st.limits!.paperDays, password, code))} disabled={!!busy || !password || !code}>
+              Save paper-day change
             </button>
           </div>
           <h3>Which agents trade live</h3>

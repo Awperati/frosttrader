@@ -432,3 +432,28 @@ test('paper days: the owner signed limit (default 10, he may set 0); 7 of 10 sti
   // raised later to 10 (re-enabled stricter): 7 days refuses again
   await assert.rejects(liveHost({ paperDays: 7, limits: { ...LIVE_PROPOSED, paperDays: 10 }, script: () => [] }), /7 of 10/);
 });
+
+test('paper days in place: one call with his password and code lowers it to 0 and back, nothing else changes', async () => {
+  const s = await apiSetup();
+  try {
+    const call = (route, body, headers = local) => s.api.handle(route.split(' ')[0], route.split(' ')[1], headers, body, '127.0.0.1');
+    await call('POST /api/live/enable', { password: 'owner-password', phrase: 'TRADE LIVE 4321', confirmed: ALL_CONFIRMED, limits: LIVE_PROPOSED, cashAccount: true });
+    const before = s.enablement.read();
+    assert.equal(before.limits.paperDays, 10);
+    await assert.rejects(call('POST /api/live/paper-days', { days: 0, password: 'wrong' }), (e) => e.status === 401 || /Wrong password/.test(e.message));
+    await assert.rejects(call('POST /api/live/paper-days', { days: 0, password: 'owner-password' }, { host: 'evil.example', 'content-type': 'application/json' }), (e) => e.status === 403);
+    assert.equal(s.enablement.read().limits.paperDays, 10, 'a refused call changes nothing');
+    await assert.rejects(call('POST /api/live/paper-days', { days: 11, password: 'owner-password' }), /0 to 10/);
+    await assert.rejects(call('POST /api/live/paper-days', { days: 2.5, password: 'owner-password' }), /whole number/);
+    const out = await call('POST /api/live/paper-days', { days: 0, password: 'owner-password' });
+    assert.equal(out.body.limits.paperDays, 0);
+    const after = s.enablement.read();
+    assert.deepEqual({ ...after.limits, paperDays: 10 }, before.limits, 'every other limit is the same');
+    assert.deepEqual([after.enabledAt, after.account, after.confirmed, after.cashAccount], [before.enabledAt, before.account, before.confirmed, before.cashAccount]);
+    assert.notEqual(after, null, 'still validly signed');
+    assert.equal((await call('POST /api/live/paper-days', { days: 10, password: 'owner-password' })).body.limits.paperDays, 10);
+    assert.equal(s.fl.seen.filter((r) => r.method === 'POST').length, 0, 'no order');
+  } finally {
+    await s.fl.close();
+  }
+});
