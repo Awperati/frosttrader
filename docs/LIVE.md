@@ -17,8 +17,12 @@ a trade. Nothing here is advice.
 - **Cash account** (your answer, 27 Oct): no borrowing. Switching on needs your tick that Alpaca's
   dashboard shows the live account as CASH; a margin flag or multiplier above 1 is refused. The
   account type does not change wire fees.
-- **10 paper days first** (your answer): an agent can be switched to live only after 10 trading days
-  on paper on the Pi. Settings → Live trading shows each agent's count (for example "6 of 10").
+- **10 paper days first** (your answer): by default an agent can be switched to live only after 10 trading
+  days on paper on the Pi. Settings → Live trading shows each agent's count (for example "6 of 10").
+  On 4 Nov you said "Remove the paper day check limit", so this is now one of your limits ("Paper trading
+  days an agent needs before it can go live"): 10 by default, 0 to 10. Setting it to 0 means no paper-day
+  check, and the live code has never traded on real Alpaca. Setting it lower needs switching live on again
+  (password, code, tick); setting it higher can be done at any time.
 - **Regular hours only**, while you sleep (00:30–07:00 Brisbane from 1 Nov). A watchdog restarts
   FrostTrader if its once-a-minute tick stops for 5 minutes; Docker restarts it after a crash or a Pi
   reboot. Any difference between the books and the account stops live at once.
@@ -42,6 +46,7 @@ Your answer (27 Oct): "Limits per agent is $100AUD". The others are your earlier
 | Daily loss per agent / all agents | A$3 / A$8 |
 | Drawdown per agent | A$10 (sits out a day, back at half size) |
 | Total drawdown | A$40 (live stops until you resume) |
+| Paper days before an agent can go live | 10 (days, not A$; 0 = no check) |
 
 You can lower any limit at once. Raising one means switching live on again.
 

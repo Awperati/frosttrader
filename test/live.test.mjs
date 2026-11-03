@@ -198,13 +198,13 @@ function seedPaperDays(dir, n = 10) {
   }
 }
 
-async function liveHost({ live = { 'agent-a': true }, script, enable = true, account, paperDays = 10, notify = () => {} } = {}) {
+async function liveHost({ live = { 'agent-a': true }, script, enable = true, account, paperDays = 10, limits = LIVE_PROPOSED, notify = () => {} } = {}) {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, 'agents-settings.json'), JSON.stringify({ ...DEFAULT_SETTINGS, strategies: { 'agent-a': 'v11', 'agent-b': 'v11', 'agent-c': 'v11', 'agent-d': 'v11' } }));
   const fl = await fakeLive({ account });
   const keys = liveKeysFor(dir, fl.base);
   const enablement = new Enablement({ dataDir: dir, keyFor: () => Buffer.from('k'.repeat(32)) });
-  if (enable) enablement.write({ account: '987654321', limits: LIVE_PROPOSED, confirmed: ALL_CONFIRMED, rate: null, cashAccount: true });
+  if (enable) enablement.write({ account: '987654321', limits, confirmed: ALL_CONFIRMED, rate: null, cashAccount: true });
   const clock = { t: T0 };
   const market = { prices: { FLEX: 60, ADI: 250 }, last: {} };
   const data = { bars: async (symbols) => Object.fromEntries(symbols.filter((s) => market.prices[s]).map((s) => [s, bars(clock.t, market.prices[s], 40, market.last[s] || {})])) };
@@ -370,7 +370,7 @@ test('host: an agent can be switched to live only after 10 paper trading days he
 });
 
 test('limits: A$100 per agent (his words), the rest scaled from his earlier set; all under the hard caps', () => {
-  assert.deepEqual(LIVE_PROPOSED, { perAgentAud: 100, totalAud: 400, perOrderAud: 25, buysPerDay: 6, perAgentDayAud: 200, allDayAud: 800, agentDailyLossAud: 3, allDailyLossAud: 8, agentDrawdownAud: 10, totalDrawdownAud: 40 });
+  assert.deepEqual(LIVE_PROPOSED, { perAgentAud: 100, totalAud: 400, perOrderAud: 25, buysPerDay: 6, perAgentDayAud: 200, allDayAud: 800, agentDailyLossAud: 3, allDailyLossAud: 8, agentDrawdownAud: 10, totalDrawdownAud: 40, paperDays: 10 });
   for (const [k, v] of Object.entries(LIVE_PROPOSED)) assert.ok(v <= LIVE_HARD[k], k);
 });
 
@@ -390,4 +390,45 @@ test('alerts: a live fill tells his phone the agent, side, stock and A$ amount; 
     s.host.stop();
     await s.fl.close();
   }
+});
+
+test('paper days: the owner signed limit (default 10, he may set 0); 7 of 10 still refuses, 0 allows, stricter later is instant, looser needs enabling again', async () => {
+  // default: 10 still refuses at 7
+  await assert.rejects(liveHost({ paperDays: 7, script: () => [] }), /agent-a has 7 of 10 paper trading days/);
+  // an old enablement without the limit reads as 10
+  const dir = tmp();
+  const key = Buffer.from('c'.repeat(32));
+  const en = new Enablement({ dataDir: dir, keyFor: () => key });
+  const { paperDays: _drop, ...old } = LIVE_PROPOSED;
+  en.write({ account: '987654321', limits: old, confirmed: ALL_CONFIRMED, rate: null });
+  assert.equal(en.read().limits.paperDays, 10);
+  // 0 is kept (not turned into the default), and a number above the hard cap is cut to it
+  assert.equal(en.write({ account: '987654321', limits: { ...LIVE_PROPOSED, paperDays: 0 }, confirmed: ALL_CONFIRMED, rate: null }).limits.paperDays, 0);
+  assert.equal(en.write({ account: '987654321', limits: { ...LIVE_PROPOSED, paperDays: 99 }, confirmed: ALL_CONFIRMED, rate: null }).limits.paperDays, LIVE_HARD.paperDays);
+  // it must be confirmed with a tick like every other limit
+  assert.ok(ALL_CONFIRMED.includes('paperDays'));
+  // lowering is refused, raising is allowed at once
+  en.write({ account: '987654321', limits: { ...LIVE_PROPOSED, paperDays: 5 }, confirmed: ALL_CONFIRMED, rate: null });
+  assert.throws(() => en.lower({ paperDays: 2 }), /only be raised here/);
+  assert.equal(en.lower({ paperDays: 8 }).limits.paperDays, 8);
+  assert.throws(() => en.lower({ paperDays: 11 }), /0 to 10/);
+  // 0 allows: an agent with 7 days is switched live, and the status says what is needed
+  const s = await liveHost({ paperDays: 7, limits: { ...LIVE_PROPOSED, paperDays: 0 }, script: () => [] });
+  try {
+    const a = s.host.status().agents.find((x) => x.id === 'agent-a');
+    assert.deepEqual([a.paperDays, a.paperDaysNeeded, a.live], [7, 0, true]);
+    // every other guard stays: no live switch without the enablement
+    const off = await liveHost({ enable: false, live: null, paperDays: 7, script: () => [] });
+    try {
+      assert.throws(() => off.host.updateSettings({ live: { 'agent-a': true } }), /Switch live trading on first/);
+    } finally {
+      off.host.stop();
+      await off.fl.close();
+    }
+  } finally {
+    s.host.stop();
+    await s.fl.close();
+  }
+  // raised later to 10 (re-enabled stricter): 7 days refuses again
+  await assert.rejects(liveHost({ paperDays: 7, limits: { ...LIVE_PROPOSED, paperDays: 10 }, script: () => [] }), /7 of 10/);
 });

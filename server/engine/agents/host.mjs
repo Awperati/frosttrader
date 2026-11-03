@@ -63,7 +63,7 @@ export const SKIP_LOG_MS = 6 * 3600_000; // the same skip reason is logged again
 export const SIT_OUT_DAYS = 2; // the halted day itself plus the next trading day
 // the owner (27 Oct 2026): "10 paper days before live to get an idea of the general scope and direction
 // of how the models will perform"
-export const PAPER_DAYS_BEFORE_LIVE = 10;
+export const PAPER_DAYS_BEFORE_LIVE = 10; // the default; the owner's signed live limits can set 0 to 10 (enablement.mjs paperDays)
 export const CLEAN_DAYS_TO_FULL = 5;
 export const HALF = 0.5;
 
@@ -168,6 +168,12 @@ export class AgentHost {
     return AGENT_IDS.slice(0, this.settings.agentsAtOnce).filter((id) => this.sandbox(id) && this.tierOf(id) !== 'retired');
   }
 
+  /** Paper days an agent needs before it may trade live: the owner's signed live limit, else the default 10. */
+  paperDaysRequired() {
+    const v = this.live?.enablement?.read?.()?.limits?.paperDays;
+    return Number.isInteger(v) && v >= 0 ? v : PAPER_DAYS_BEFORE_LIVE;
+  }
+
   /** 'active', 'reduced' or 'retired' (the overseer's paper tier). */
   tierOf(id) {
     return this.tiers?.tierOf(id) ?? 'active';
@@ -235,7 +241,8 @@ export class AgentHost {
     }
     for (const id of turningOn) {
       const n = this.paperDays(id).length;
-      if (n < PAPER_DAYS_BEFORE_LIVE) throw new Error(`${id} has ${n} of ${PAPER_DAYS_BEFORE_LIVE} paper trading days on this computer: it can trade live after ${PAPER_DAYS_BEFORE_LIVE - n} more.`);
+      const need = this.paperDaysRequired();
+      if (n < need) throw new Error(`${id} has ${n} of ${need} paper trading days on this computer: it can trade live after ${need - n} more.`);
     }
     if (input?.runHere === false && this.settings.runHere !== false && Object.keys(this.holders()).length) {
       throw new Error('Move the agents to another computer only while no agent holds a position.');
@@ -993,7 +1000,7 @@ export class AgentHost {
         strategy: this.strategyOf(id),
         live: this.settings.live?.[id] === true,
         paperDays: this.paperDays(id).length,
-        paperDaysNeeded: PAPER_DAYS_BEFORE_LIVE,
+        paperDaysNeeded: this.paperDaysRequired(),
         tier: this.tierOf(id),
         limits: sb?.guard.limits ?? null,
         lastProposals: a.lastProposals,

@@ -27,6 +27,11 @@ export const LIVE_PROPOSED = Object.freeze({
   allDailyLossAud: 8, // every agent stops for the day
   agentDrawdownAud: 10, // that agent: automatic sit-out, back at half size (as on paper)
   totalDrawdownAud: 40, // all live trading stops until the owner resumes
+  // a count of trading days, not dollars: paper days an agent needs before it may be switched to live.
+  // The owner (4 Nov 2026): "Remove the paper day check limit" -> his to set, 0 = no check. Unlike the
+  // dollar limits, LOWERING this one weakens a guard, so it is only possible when enabling (with his
+  // password, code and tick); a stricter value can be set at any time.
+  paperDays: 10,
 });
 
 /** The furthest any limit can ever go, whatever a file says. */
@@ -41,6 +46,7 @@ export const LIVE_HARD = Object.freeze({
   allDailyLossAud: 20,
   agentDrawdownAud: 25,
   totalDrawdownAud: 100,
+  paperDays: 10, // the most it can ask for
 });
 
 export const LIMIT_LABELS = Object.freeze({
@@ -54,6 +60,7 @@ export const LIMIT_LABELS = Object.freeze({
   allDailyLossAud: 'Daily loss, all agents (all stop for the day)',
   agentDrawdownAud: 'Drawdown per agent (sits out a day, back at half size)',
   totalDrawdownAud: 'Total drawdown (live stops until you resume)',
+  paperDays: 'Paper trading days an agent needs before it can go live (0 = no check)',
 });
 
 /** Limits made safe: each a positive number no higher than LIVE_HARD; missing ones take the proposal. */
@@ -61,6 +68,10 @@ export function cleanLiveLimits(input = {}) {
   const out = {};
   for (const [k, hard] of Object.entries(LIVE_HARD)) {
     const v = Number(input[k]);
+    if (k === 'paperDays') {
+      out[k] = Number.isFinite(v) && v >= 0 ? Math.min(Math.floor(v), hard) : LIVE_PROPOSED[k];
+      continue;
+    }
     out[k] = Number.isFinite(v) && v > 0 ? Math.min(v, hard) : LIVE_PROPOSED[k];
     if (k === 'buysPerDay') out[k] = Math.max(1, Math.floor(out[k]));
   }
@@ -123,6 +134,13 @@ export class Enablement {
     for (const [k, v] of Object.entries(patch || {})) {
       if (!(k in LIVE_HARD)) continue;
       const n = Number(v);
+      if (k === 'paperDays') {
+        // the other way round: asking for MORE paper days is stricter, so it is allowed now; fewer needs enabling again
+        if (!(n >= 0) || n > LIVE_HARD[k]) throw new Error(`${LIMIT_LABELS[k]} must be 0 to ${LIVE_HARD[k]}.`);
+        if (n < cur.limits[k]) throw new Error(`${LIMIT_LABELS[k]} can only be raised here. Lowering it means enabling again.`);
+        next[k] = Math.floor(n);
+        continue;
+      }
       if (!(n > 0)) throw new Error(`${LIMIT_LABELS[k]} must be above zero.`);
       if (n > cur.limits[k]) throw new Error(`${LIMIT_LABELS[k]} can only be lowered here. Raising it means enabling again.`);
       next[k] = n;

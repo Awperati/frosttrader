@@ -180,7 +180,7 @@ export type LlmStatus = { enabled: boolean; url: string; model: string; keySet: 
 
 export type ConnectorStatus = { url: string; set: boolean; created: string | null; lastUsed: string | null; token?: string; shownOnce?: boolean };
 
-export type LiveLimits = { perAgentAud: number; totalAud: number; perOrderAud: number; buysPerDay: number; perAgentDayAud: number; allDayAud: number; agentDailyLossAud: number; allDailyLossAud: number; agentDrawdownAud: number; totalDrawdownAud: number };
+export type LiveLimits = { perAgentAud: number; totalAud: number; perOrderAud: number; buysPerDay: number; perAgentDayAud: number; allDayAud: number; agentDailyLossAud: number; allDailyLossAud: number; agentDrawdownAud: number; totalDrawdownAud: number; paperDays: number };
 export type LiveStatus = {
   enabled: boolean;
   enabledAt: string | null;

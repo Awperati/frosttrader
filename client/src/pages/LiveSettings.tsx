@@ -96,8 +96,9 @@ export function LiveCard() {
                 <span>
                   <input type="checkbox" checked={confirmed.includes(k)} onChange={() => toggle(k)} aria-label={`confirm ${st.labels[k]}`} /> {st.labels[k]}
                 </span>
-                <input type="number" min={0} step={k === 'buysPerDay' ? 1 : 0.05} max={st.hard[k]} value={limits[k]} onChange={(e) => setLimits({ ...limits, [k]: Number(e.target.value) })} />
-                <span className="small muted">at most {st.hard[k]}</span>
+                <input type="number" min={0} step={k === 'buysPerDay' || k === 'paperDays' ? 1 : 0.05} max={st.hard[k]} value={limits[k]} onChange={(e) => setLimits({ ...limits, [k]: Number(e.target.value) })} />
+                <span className="small muted">{k === 'paperDays' ? '0 to ' : 'at most '}{st.hard[k]}</span>
+                {k === 'paperDays' && limits[k] === 0 ? <span className="small error">no paper-day check: the live code has never traded on real Alpaca</span> : null}
               </label>
             ))}
           </div>
@@ -134,7 +135,8 @@ export function LiveCard() {
             {keys.map((k) => (
               <label key={k} className="field">
                 <span>{st.labels[k]}</span>
-                <input type="number" min={0} step={k === 'buysPerDay' ? 1 : 0.05} max={st.limits![k]} value={limits[k]} onChange={(e) => setLimits({ ...limits, [k]: Number(e.target.value) })} />
+                <input type="number" min={k === 'paperDays' ? st.limits![k] : 0} step={k === 'buysPerDay' || k === 'paperDays' ? 1 : 0.05} max={k === 'paperDays' ? st.hard[k] : st.limits![k]} value={limits[k]} onChange={(e) => setLimits({ ...limits, [k]: Number(e.target.value) })} />
+                {k === 'paperDays' ? <span className="small muted">{st.limits![k] === 0 ? 'no paper-day check: the live code has never traded on real Alpaca. ' : ''}You can only raise this here; lowering it means switching live on again.</span> : null}
               </label>
             ))}
           </div>
@@ -147,7 +149,7 @@ export function LiveCard() {
             </button>
           </div>
           <h3>Which agents trade live</h3>
-          <p className="small muted">An agent switched to live also trades with real money, inside the limits above. It keeps trading on paper too. Each agent needs 10 trading days on paper here first.</p>
+          <p className="small muted">An agent switched to live also trades with real money, inside the limits above. It keeps trading on paper too. Each agent needs the number of paper trading days set in your limits (10 unless you changed it) first.</p>
           <div className="row">
             {agents
               ? Object.entries(agents).map(([id, on]) => (
@@ -158,7 +160,7 @@ export function LiveCard() {
                       disabled={!on && (views.find((v) => v.id === id)?.paperDays ?? 0) < (views.find((v) => v.id === id)?.paperDaysNeeded ?? 10)}
                       onChange={(e) => (!e.target.checked || window.confirm(`Let ${id} trade with real money?`)) && saveAgents({ ...agents, [id]: e.target.checked })}
                     />{' '}
-                    {id} <span className="small muted">({views.find((v) => v.id === id)?.paperDays ?? 0} of {views.find((v) => v.id === id)?.paperDaysNeeded ?? 10} paper days)</span>
+                    {id} <span className="small muted">({views.find((v) => v.id === id)?.paperDaysNeeded === 0 ? `no paper-day check: the live code has never traded on real Alpaca; ${views.find((v) => v.id === id)?.paperDays ?? 0} paper days so far` : `${views.find((v) => v.id === id)?.paperDays ?? 0} of ${views.find((v) => v.id === id)?.paperDaysNeeded ?? 10} paper days`})</span>
                   </label>
                 ))
               : null}
