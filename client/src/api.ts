@@ -195,6 +195,7 @@ export type LiveResults = {
   lastFills: LiveFill[];
   approx: boolean;
 };
+export type LiveCurve = { points: { day: string; liveDayAud: number; liveDayUsd: number; liveCumAud: number; liveCumUsd: number; paperDayAud: number; paperCumAud: number; brokerEquityUsd: number | null; brokerEquityAud: number | null; liveEquityAud: number | null }[]; approx: boolean };
 export type LiveStatus = {
   enabled: boolean;
   enabledAt: string | null;
@@ -307,6 +308,7 @@ export const api = {
   saveLiveKeys: (keyId: string, secret: string) => call<LiveStatus>('/api/live/keys', json('PUT', { keyId, secret })),
   testLiveKeys: () => call<LiveStatus>('/api/live/keys/test', json('POST', {})),
   enableLive: (b: { password: string; code: string; phrase: string; limits: LiveLimits; confirmed: string[]; cashAccount: boolean }) => call<LiveStatus>('/api/live/enable', json('POST', b)),
+  liveCurve: () => call<LiveCurve>('/api/live/curve'),
   liveResults: () => call<LiveResults>('/api/live/results'),
   setPaperDays: (days: number, password: string, code: string) => call<LiveStatus>('/api/live/paper-days', json('POST', { days, password, code })),
   lowerLive: (limits: LiveLimits) => call<LiveStatus>('/api/live/lower', json('POST', { limits })),

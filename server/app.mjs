@@ -28,6 +28,7 @@ import { createTotp } from './totp.mjs';
 import { loadModel } from './engine/models/v11.mjs';
 import { createAgentsApi } from './agents-api.mjs';
 import { Overseer } from './engine/agents/overseer.mjs';
+import { AGENT_IDS } from './engine/agents/profile.mjs';
 import { FxRate } from './engine/data/fx.mjs';
 import { Research } from './engine/research/nightly.mjs';
 import { ModelIdeas } from './engine/research/hypotheses.mjs';
@@ -162,7 +163,7 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     notify,
   });
   host = new AgentHost({ dataDir: DATA_DIR, getUniverse: () => finvizSource.symbols(), getData: () => alpacaKeys.client(), getOrders, getFx: () => fx.current(), refreshFx: () => fx.refresh(), live: desk, notify, settingsDefaults });
-  const live = createLiveApi({ desk, keys: liveKeys, enablement, auth, getFx: () => fx.current(), notify });
+  const live = createLiveApi({ desk, keys: liveKeys, enablement, auth, getFx: () => fx.current(), notify, paperTrades: () => host.journal.trades(AGENT_IDS) });
   // the private website (docs/WEBSITE.md): off unless FROST_TRADER_PUBLIC_HOST is set (and his sign-in with a code)
   const env = process.env;
   const gate = new WebGate({
@@ -184,6 +185,7 @@ export async function startServer({ dataDir, ports = [DEFAULT_PORT], distDir = p
     } catch (e) {
       log.warn?.(`overseer: ${e.message}`);
     }
+    desk.recordDaily(day); // the live curve's account equity for the day (never throws)
   };
   // the Frost AI connector (MCP at /mcp): read tools plus stop/start/kill, behind a token made in Settings
   const connectorToken = new ConnectorToken({ dataDir: DATA_DIR });

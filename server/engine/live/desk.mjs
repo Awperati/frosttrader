@@ -80,6 +80,7 @@ export class LiveDesk {
     this.file = path.join(dataDir, 'live-state.json');
     this.fillsFile = path.join(dataDir, 'live', 'fills.jsonl'); // one line per live fill with its A$ and US$ result
     this.auditFile = path.join(dataDir, 'audit.jsonl');
+    this.dailyFile = path.join(dataDir, 'live', 'daily.jsonl'); // one line per live day: what only the account knows
     this.state = { agents: {}, pending: {}, unsettled: [], dayTrades: [], seq: 0, day: null, allHalt: null, stopped: null, peakTotalAud: null, account: null, lastError: '', ...(readJson(this.file) || {}) };
   }
 
@@ -153,7 +154,7 @@ export class LiveDesk {
 
     // L3: the account is still what he enabled
     const acct = await b.account();
-    this.state.account = { number: acct.number.slice(-4), cash: acct.cash, multiplier: acct.multiplier, pdt: acct.pdt, daytradeCount: acct.daytradeCount, at: now };
+    this.state.account = { number: acct.number.slice(-4), cash: acct.cash, equity: acct.equity, multiplier: acct.multiplier, pdt: acct.pdt, daytradeCount: acct.daytradeCount, at: now };
     const bad = accountProblem(acct, en.account);
     if (bad) return this.stopAll(bad, b);
 
@@ -409,6 +410,56 @@ export class LiveDesk {
     const read = readLines(this.fillsFile);
     if (read.length || fs.existsSync(this.fillsFile)) return read;
     return rebuildFills(readLines(this.auditFile));
+  }
+
+  /**
+   * After the close: one line for the day with the Alpaca account's equity and cash (US$) and the desk's
+   * own equity at cost (A$). Replaces an earlier line of the same day. Nothing when live is off or the
+   * account was never read. Never throws.
+   */
+  recordDaily(day) {
+    try {
+      const acct = this.state.account;
+      const en = this.enabled();
+      if (!en || !acct) return null;
+      const rate = this.rate()?.rate ?? null;
+      const liveEquityAud = rate ? Object.values(this.state.agents).reduce((s, a) => s + this.equityAud(a, {}, rate), 0) + (4 - Object.keys(this.state.agents).length) * en.limits.perAgentAud : null;
+      const rec = { day, at: this.now(), rate, brokerEquityUsd: acct.equity ?? null, brokerCashUsd: acct.cash ?? null, liveEquityAud };
+      const keep = readLines(this.dailyFile).filter((l) => l.day !== day);
+      fs.mkdirSync(path.dirname(this.dailyFile), { recursive: true });
+      fs.writeFileSync(this.dailyFile, [...keep, rec].map((l) => JSON.stringify(l)).join("\n") + "\n");
+      return rec;
+    } catch (e) {
+      this.log.warn?.(`live: daily file: ${e.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * The live curve: per day with live fills (or a stored day line), the closed live result in A$ and US$
+   * (day and running total, from the fills, rebuilt from the audit log when needed), the same for the
+   * paper agents (their round trips in A$) and the account equity the day line stored.
+   */
+  curve(paperTrades = []) {
+    const fills = this.fills();
+    const daily = new Map(readLines(this.dailyFile).map((l) => [l.day, l]));
+    const days = [...new Set([...fills.map((f) => f.day), ...daily.keys()])].sort();
+    let liveA = 0;
+    let liveU = 0;
+    return {
+      points: days.map((d) => {
+        const sold = fills.filter((f) => f.day === d && f.side === 'sell');
+        const dayAud = sold.reduce((s, f) => s + (f.pnlAud ?? 0), 0);
+        const dayUsd = sold.reduce((s, f) => s + (f.pnlUsd ?? 0), 0);
+        liveA += dayAud;
+        liveU += dayUsd;
+        const paperDay = paperTrades.filter((t) => t.day === d).reduce((s, t) => s + (t.pnlAud ?? 0), 0);
+        const paperCum = paperTrades.filter((t) => t.day <= d).reduce((s, t) => s + (t.pnlAud ?? 0), 0);
+        const line = daily.get(d);
+        return { day: d, liveDayAud: dayAud, liveDayUsd: dayUsd, liveCumAud: liveA, liveCumUsd: liveU, paperDayAud: paperDay, paperCumAud: paperCum, brokerEquityUsd: line?.brokerEquityUsd ?? null, brokerEquityAud: line?.brokerEquityUsd != null && line.rate ? line.brokerEquityUsd / line.rate : null, liveEquityAud: line?.liveEquityAud ?? null };
+      }),
+      approx: fills.some((f) => f.approx),
+    };
   }
 
   /** What the owner sees: per agent and total closed result (A$ with US$), open positions, last fills, broker cash. */

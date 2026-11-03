@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type LiveResults } from '../api';
-import { num, signed, tone } from '../format';
+import { num, tone } from '../format';
+import { LiveCurveCard } from './LiveCurve';
 
 // Live (real-money) results: closed P&L in A$ with US$ beside it, per agent and in total, open
 // positions, the last 20 live fills and the broker cash. From the live desk's own fills
@@ -62,6 +63,8 @@ export function LiveResultsCard() {
           </tbody>
         </table>
       </div>
+      <h4>Live curve</h4>
+      <LiveCurveCard />
       <h4>Last live fills</h4>
       {r.lastFills.length ? (
         <div className="table-wrap">

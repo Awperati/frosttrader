@@ -30,7 +30,7 @@ const ALL_CONFIRMED = Object.keys(LIVE_HARD);
 
 /** A fake Alpaca LIVE API on 127.0.0.1. Orders fill at once at `fillPrice` (or stay open with neverFill). */
 async function fakeLive(opts = {}) {
-  const st = { orders: [], positions: {}, seen: [], account: { account_number: '987654321', status: 'ACTIVE', currency: 'USD', multiplier: '1', cash: '100', non_marginable_buying_power: '100', pattern_day_trader: false, shorting_enabled: false, daytrade_count: 0, ...(opts.account || {}) }, fillPrice: opts.fillPrice ?? 60, neverFill: false };
+  const st = { orders: [], positions: {}, seen: [], account: { account_number: '987654321', status: 'ACTIVE', currency: 'USD', multiplier: '1', cash: '100', equity: '102.5', non_marginable_buying_power: '100', pattern_day_trader: false, shorting_enabled: false, daytrade_count: 0, ...(opts.account || {}) }, fillPrice: opts.fillPrice ?? 60, neverFill: false };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (d) => (body += d));
@@ -506,4 +506,38 @@ test('live results: without a fills file the history is rebuilt from the audit l
   assert.ok(Math.abs(f[1].pnlUsd - 5) < 1e-9 && Math.abs(f[2].pnlUsd + 10) < 1e-9, 'half the lot each: +5 then -10');
   assert.ok(Math.abs(f[1].pnlAud - 5 / 0.7) < 1e-9);
   assert.equal(f[0].day, '2026-11-05');
+});
+
+test('live curve: per day the closed live result (A$ and US$), the paper result on the same days, and the account equity the day line stored; one line per day', async () => {
+  const s = await liveHost({ script: (m) => (m.t === T0 ? [v11buy('FLEX', 0.65)] : []) });
+  try {
+    const paper = [{ day: '2026-10-20', pnlAud: 1.5 }, { day: '2026-10-21', pnlAud: -0.5 }, { day: '2026-10-21', pnlAud: 0.25 }];
+    const api = createLiveApi({ desk: s.desk, keys: liveKeysFor(s.dir, s.fl.base), enablement: s.desk.enablement, auth: null, paperTrades: () => paper });
+    assert.equal(s.desk.recordDaily('2026-10-21'), null, 'no account read yet: no line');
+    assert.deepEqual((await api.handle('GET', '/api/live/curve', {}, null)).body.points, []);
+    await s.host.tick();
+    s.clock.t += 5 * MIN;
+    s.market.last.FLEX = { o: 60, h: 60, l: 50, c: 50 };
+    s.fl.fillPrice = 50;
+    await s.host.tick();
+    const line = s.desk.recordDaily('2026-10-21');
+    assert.ok(line && line.brokerEquityUsd === 102.5 && line.rate === 0.7);
+    s.desk.recordDaily('2026-10-21');
+    assert.equal(fs.readFileSync(path.join(s.dir, 'live', 'daily.jsonl'), 'utf8').split('\n').filter(Boolean).length, 1, 'a second call the same day replaces the line');
+    const posts = s.fl.seen.filter((r) => r.method === 'POST').length;
+    const c = (await api.handle('GET', '/api/live/curve', {}, null)).body;
+    assert.equal(s.fl.seen.filter((r) => r.method === 'POST').length, posts, 'no order');
+    assert.equal(c.points.length, 1);
+    const p = c.points[0];
+    assert.equal(p.day, '2026-10-21');
+    assert.ok(p.liveDayAud < 0 && p.liveCumAud === p.liveDayAud && p.liveDayUsd < 0);
+    assert.ok(Math.abs(p.liveCumAud - s.desk.state.agents['agent-a'].realizedAud) < 1e-9);
+    assert.equal(p.paperCumAud, 1.25);
+    assert.equal(p.paperDayAud, -0.25);
+    assert.equal(p.brokerEquityUsd, 102.5);
+    assert.ok(Math.abs(p.brokerEquityAud - 102.5 / 0.7) < 1e-9);
+  } finally {
+    s.host.stop();
+    await s.fl.close();
+  }
 });

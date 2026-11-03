@@ -79,3 +79,12 @@ To stop: the kill switch (everything, paper and live), or "Switch live off" (clo
 - The Pi must be on and online in US market hours (00:30–07:00 Brisbane from 1 Nov).
 - Tested only against a fake Alpaca on this computer (`test/live.test.mjs`). The first real order
   will be the first time the live account's replies are seen.
+
+## Seeing live results
+
+- Settings → Live trading → **Live results**, and the Paper portfolio page (when live is on): closed live
+  P&L per agent and in total, today and since start, in A$ with US$ beside it; open positions; the last 20
+  live fills; the Alpaca account cash; and the **live curve** (running live and paper result in A$, live
+  result per day, and the Alpaca account equity stored after each close).
+- Data: `DATA_DIR/live/fills.jsonl` (one line per live fill), `DATA_DIR/live/daily.jsonl` (one line per day).
+  If fills.jsonl is missing the history is rebuilt from the audit log (A$ approximate, and the card says so).
