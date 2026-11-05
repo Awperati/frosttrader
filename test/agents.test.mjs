@@ -638,3 +638,70 @@ test('host: a tick that does nothing says why, once per reason (and again after 
   assert.equal(skips().length, 3);
   host.stop();
 });
+
+// ── guards that act before a limit is breached (guards.mjs) ──
+
+test('host: a buy that would take the open stop risk past the daily loss limit is refused before it is bought', async () => {
+  const { host, clock, market } = makeHost({
+    script: (id, m) => (id === 'agent-a' ? (m.t === T0 ? [buy('AAPL')] : [buy('MSFT')]) : []),
+    settings: { preset: { ...MEDIUM, drawdownPct: 0.3 } },
+  });
+  await host.tick();
+  clock.t += 5 * MIN;
+  market.prices.AAPL = 177; // AAPL stops out: the day is down about US$0.29 of the US$0.30 limit, not yet halted
+  await host.tick();
+  const st = host.status().agents.find((x) => x.id === 'agent-a');
+  assert.ok(st.dayPnl < -0.25 && st.dayPnl > -0.3, `day P&L ${st.dayPnl}`);
+  assert.equal(st.positions.length, 0, 'the MSFT buy was refused');
+  assert.ok(host.audit.tail(20).some((e) => e.type === 'refused' && e.symbol === 'MSFT' && /risk budget/.test(e.reason)));
+  host.stop();
+});
+
+// a day of agent-a: one buy, a stop-out 5 % down, then the close (endDay)
+async function losingDay(prior) {
+  const h = makeHost({ script: (id, m) => (id === 'agent-a' && m.t === T0 ? [buy('AAPL')] : []), settings: { preset: { ...MEDIUM, drawdownPct: 0.3 } } });
+  h.host.state.agents['agent-a'].results = prior;
+  await h.host.tick();
+  h.clock.t += 5 * MIN;
+  h.market.prices.AAPL = 190;
+  await h.host.tick();
+  return h;
+}
+
+test('host: three losing days in a row (down 1.5 % or more) sit an agent out, and the day ends with one audit line in both currencies', async () => {
+  const { host, clock } = await losingDay([{ day: '2026-10-19', pnl: -0.05 }, { day: '2026-10-20', pnl: -0.05 }]);
+  clock.t = Date.parse('2026-10-21T20:30:00Z'); // 16:30 New York
+  await host.tick();
+  const a = host.state.agents['agent-a'];
+  assert.equal(a.sitOut, SIT_OUT_DAYS);
+  const events = host.audit.tail(40);
+  assert.ok(events.some((e) => e.type === 'halt' && e.agent === 'agent-a' && e.kind === 'loss-streak'));
+  const line = events.find((e) => e.type === 'day-summary');
+  assert.equal(line.day, '2026-10-21');
+  assert.equal(line.reconciled, true);
+  assert.equal(line.agents['agent-a'].trades, 1);
+  assert.ok(line.totalUsd < 0 && Math.abs(line.totalAud - line.totalUsd) < 1e-3, 'rate 1 in this test: A$ equals US$');
+  assert.equal(host.state.integrity, null);
+  assert.equal(host.audit.verify().ok, true);
+  host.stop();
+});
+
+test('host: two losing days do not sit an agent out', async () => {
+  const { host, clock } = await losingDay([{ day: '2026-10-20', pnl: -0.05 }]);
+  clock.t = Date.parse('2026-10-21T20:30:00Z');
+  await host.tick();
+  assert.equal(host.state.agents['agent-a'].sitOut, 0);
+  host.stop();
+});
+
+test('host: a ledger that disagrees with the trade log at the close is an integrity halt, loudly', async () => {
+  const { host, clock, dir } = await losingDay([]);
+  fs.writeFileSync(path.join(dir, 'agents', 'agent-a', 'trades.jsonl'), ''); // the trade log loses the day's round trip
+  clock.t = Date.parse('2026-10-21T20:30:00Z');
+  await host.tick();
+  assert.match(host.state.integrity?.reason || '', /agent-a on 2026-10-21: 1 ledger sells but 0 trades in the log/);
+  const events = host.audit.tail(40);
+  assert.ok(events.some((e) => e.type === 'reconcile-fail'));
+  assert.equal(events.find((e) => e.type === 'day-summary').reconciled, false);
+  host.stop();
+});

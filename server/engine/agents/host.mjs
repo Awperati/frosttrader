@@ -45,6 +45,7 @@ import { AGENT_IDS, DEFAULT_SETTINGS, MAX_AGENTS, cleanSettings, limitsFor } fro
 import { STOCK, agentCapital, positionSize } from '../risk.mjs';
 import { atr, nyClock, marketOpen, closeMinute, OPEN_MIN } from '../stats.mjs';
 import { loadModel } from '../models/v11.mjs';
+import { GUARDS, openStopRisk, fitToBudget, lossStreak, reconcileDay } from './guards.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const ENGINE_DIR = path.resolve(here, '..');
@@ -552,6 +553,7 @@ export class AgentHost {
       }
     }
     this.audit.write({ type: 'day-end', day });
+    this.#closeBooks(day);
     try {
       const rate = this.getFx()?.rate;
       const lines = [...this.manager.sandboxes].map(([id, sb]) => {
@@ -572,6 +574,44 @@ export class AgentHost {
       void this.onDayEnd(day);
     } catch (e) {
       this.log.warn?.(`research: ${e.message}`);
+    }
+  }
+
+  /**
+   * After the close: each agent's ledger sells against its trade log (a mismatch is an integrity halt, loudly),
+   * a loss-streak sit-out, and one audit line with the day in both currencies and the rate.
+   */
+  #closeBooks(day) {
+    const rate = this.getFx()?.rate ?? null;
+    const summary = {};
+    const problems = [];
+    for (const [id, sb] of this.manager.sandboxes) {
+      const a = this.state.agents[id];
+      const sells = sb.broker.fills.filter((f) => f.side === 'sell' && nyClock(f.t).day === day);
+      const trades = this.journal.trades([id], { from: day, to: day });
+      const bad = reconcileDay(sells, trades);
+      if (bad) problems.push(`${id} on ${day}: ${bad}`);
+      const pnlUsd = sells.reduce((s, f) => s + f.pnl, 0);
+      const pnlAud = trades.reduce((s, t) => s + (t.pnlAud ?? 0), 0);
+      const dayPnl = sb.guard.day?.key === day ? sb.guard.dayPnl(sb.broker.equity()) : pnlUsd;
+      if (this.running().includes(id)) {
+        a.results = [...(a.results || []).filter((r) => r.day !== day), { day, pnl: dayPnl }].slice(-10);
+        if (a.sitOut === 0 && lossStreak(a.results, sb.allocation)) {
+          a.sitOut = SIT_OUT_DAYS;
+          a.cleanDays = 0;
+          const lost = -a.results.slice(-GUARDS.streakDays).reduce((s, r) => s + r.pnl, 0);
+          this.audit.write({ type: 'halt', agent: id, kind: 'loss-streak', reason: `${GUARDS.streakDays} losing days in a row, US$${lost.toFixed(2)} down`, resumes: 'after a day out, at half size' });
+          this.notify('halt', { message: `${id} sits out a day: ${GUARDS.streakDays} losing days in a row.` });
+        }
+      }
+      summary[id] = { trades: trades.length, pnlUsd: Math.round(pnlUsd * 1e4) / 1e4, pnlAud: Math.round(pnlAud * 1e4) / 1e4, equityUsd: Math.round(sb.broker.equity() * 100) / 100, ledgerRealizedUsd: Math.round(sb.broker.realized * 1e4) / 1e4 };
+    }
+    const total = Object.values(summary).reduce((t, x) => ({ usd: t.usd + x.pnlUsd, aud: t.aud + x.pnlAud }), { usd: 0, aud: 0 });
+    this.audit.write({ type: 'day-summary', day, rate, agents: summary, totalUsd: Math.round(total.usd * 1e4) / 1e4, totalAud: Math.round(total.aud * 1e4) / 1e4, reconciled: problems.length === 0 });
+    if (problems.length) {
+      this.audit.write({ type: 'reconcile-fail', day, problems });
+      this.notify('halt', { message: `FrostTrader books do not reconcile: ${problems[0]}. Agents stopped until you look.` });
+      this.integrityHalt(`ledger and trade log differ: ${problems.join('; ')}`);
     }
   }
 
@@ -938,8 +978,12 @@ export class AgentHost {
     const acct = sb.broker.account();
     // a real market order can fill a little above the last close: size it 1 % high so the fill always fits the cash
     const sizePrice = this.orders ? b.c * 1.01 : b.c;
-    const qty = positionSize({ equity: acct.equity, cash: acct.cash, price: sizePrice, stop: stop * (sizePrice / b.c), limits: sb.guard.limits, fractional: true });
+    let qty = positionSize({ equity: acct.equity, cash: acct.cash, price: sizePrice, stop: stop * (sizePrice / b.c), limits: sb.guard.limits, fractional: true });
     if (!(qty > 0)) return decide(false, 'size rounds to nothing');
+    // stop BEFORE a breach: the buy plus every open position must still fit the agent's and the pool's daily loss budgets if all of them stopped out
+    const fit = this.#riskFit({ id, sb, price: b.c, stop, qty });
+    if (fit.qty < qty * GUARDS.minFill - 1e-9) return decide(false, fit.reason);
+    qty = fit.qty;
     const order = { symbol: p.symbol, side: 'buy', qty, price: b.c, t: b.t };
     const gate = agentCapital({ agentId: id, order, cash: acct.cash, exposure: sb.exposure(), allocation: sb.allocation, universe, lockedBy: this.holders()[p.symbol] ?? null });
     if (!gate.ok) return decide(false, gate.reason);
@@ -948,6 +992,24 @@ export class AgentHost {
     const res = sb.submit({ ...order, why });
     if (!res.ok) return decide(false, res.reason);
     this.booked({ id, a, p, b, r, res, qty, stop, trail, v11, params, decide });
+  }
+
+  /** The buy's size cut to what the agent's and the pool's daily loss budgets can take if every open position and this one hit their stops. */
+  #riskFit({ id, sb, price, stop, qty }) {
+    const a = this.state.agents[id];
+    const mine = fitToBudget({ qty, price, stop, limit: sb.guard.limits.maxDailyLoss, dayPnl: sb.guard.dayPnl(sb.broker.equity()), openRisk: openStopRisk(sb.broker.positions, sb.broker.prices, a.plans) });
+    let open = 0;
+    let dayPnl = 0;
+    for (const [other, o] of this.manager.sandboxes) {
+      open += openStopRisk(o.broker.positions, o.broker.prices, this.state.agents[other].plans);
+      dayPnl += o.guard.dayPnl(o.broker.equity());
+    }
+    const poolLimit = this.manager.allocated() * this.settings.preset.poolDailyLossPct;
+    const pool = fitToBudget({ qty, price, stop, limit: poolLimit, dayPnl, openRisk: open });
+    const fitted = Math.min(mine.qty, pool.qty);
+    if (fitted >= qty) return { qty };
+    const which = pool.qty < mine.qty ? `the pool's daily loss limit (US$${poolLimit.toFixed(2)})` : `its daily loss limit (US$${sb.guard.limits.maxDailyLoss.toFixed(2)})`;
+    return { qty: fitted, reason: `risk budget: open positions and this buy, if all stopped out, would pass ${which}` };
   }
 
   /** A buy on the Alpaca paper account: the book's checks first, then the order, then Alpaca's fill on the book. */
